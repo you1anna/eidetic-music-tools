@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Convenience shim so you can run the tool without activating the venv.
+# The venv lives on the Mac (APFS), NOT beside this source on the exFAT SSD.
+# Override the location with $SAMPLE_TOOLS_VENV if you put it elsewhere.
+set -euo pipefail
+VENV="${SAMPLE_TOOLS_VENV:-$HOME/.venvs/sample-tools}"
+if [ ! -x "$VENV/bin/python" ]; then
+  echo "venv not found at $VENV — see sample-tools/README.md (Install)" >&2
+  exit 1
+fi
+exec "$VENV/bin/python" -m sampletools.cli "$@"

@@ -1,0 +1,6 @@
+# Core sample-export runtime has no third-party deps:
+# it shells out to ffmpeg/ffprobe (installed via Homebrew) and uses the stdlib.
+#
+# Future work (BPM detection for inventory/auto-naming) would add e.g.:
+#   librosa
+#   soundfile

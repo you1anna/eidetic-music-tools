@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sampletools"
+version = "0.1.0"
+description = "Export/sync curated samples to Octatrack MKII, Digitakt MK1, and TR-8S"
+requires-python = ">=3.12"
+dependencies = []  # core uses stdlib + ffmpeg/ffprobe via subprocess
+
+[project.scripts]
+sample-export = "sampletools.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
