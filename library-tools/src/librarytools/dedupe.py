@@ -48,8 +48,7 @@ def pick_canonical(paths: list[Path]) -> Path:
 def build_plan(root: Path = config.SAMPLES_ROOT) -> list[moves.Move]:
     """Confirm dupes by hash; move every non-canonical copy to _TO-DELETE/dupes/."""
     plan: list[moves.Move] = []
-    dupes_root = (root / "_TO-DELETE" / "dupes") if root != config.SAMPLES_ROOT \
-        else config.TO_DELETE_ROOT / "dupes"
+    dupes_root = root / "_TO-DELETE" / "dupes"
     for candidates in find_candidates(root).values():
         by_hash: dict[str, list[Path]] = defaultdict(list)
         for p in candidates:

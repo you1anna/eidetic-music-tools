@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from librarytools.classify import classify_path
+from librarytools import classify as classify_mod
 
 
 def test_loop_keyword_wins():
@@ -56,10 +57,6 @@ def test_unmatched_no_duration_is_other():
 def test_folder_keyword_counts():
     b, _ = classify_path(Path("_PACKS/Techno Loops/bd.wav"))
     assert b == "LOOPS"
-
-
-from librarytools import classify as classify_mod
-from librarytools import config
 
 
 def test_dest_rel_keeps_pack_and_subpath():

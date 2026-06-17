@@ -39,3 +39,36 @@ def test_apply_plan_writes_undo_for_moved_only(tmp_path: Path):
     counts = moves.apply_plan([moves.Move(src, dest, "LOOPS")], undo)
     assert counts == {"moved": 1, "exists": 0, "missing": 0}
     assert undo.read_text().strip() == f"{dest}\t{src}"
+
+
+def test_apply_plan_undo_contains_moved_lines_only(tmp_path: Path):
+    # one entry will move, one will hit an existing dest (skip), one is missing src
+    moved_src = tmp_path / "src" / "a.wav"
+    moved_src.parent.mkdir(parents=True)
+    moved_src.write_text("a")
+    moved_dest = tmp_path / "out" / "a.wav"
+
+    exists_src = tmp_path / "src" / "b.wav"
+    exists_src.write_text("b")
+    exists_dest = tmp_path / "out" / "b.wav"
+    exists_dest.parent.mkdir(parents=True)
+    exists_dest.write_text("already here")
+
+    missing_src = tmp_path / "src" / "gone.wav"  # never created
+    missing_dest = tmp_path / "out" / "gone.wav"
+
+    undo = tmp_path / "undo.tsv"
+    plan = [
+        moves.Move(moved_src, moved_dest, "LOOPS"),
+        moves.Move(exists_src, exists_dest, "LOOPS"),
+        moves.Move(missing_src, missing_dest, "LOOPS"),
+    ]
+    counts = moves.apply_plan(plan, undo)
+
+    assert counts == {"moved": 1, "exists": 1, "missing": 1}
+    # undo must list ONLY the moved file, as dest<TAB>src
+    undo_lines = undo.read_text().splitlines()
+    assert undo_lines == [f"{moved_dest}\t{moved_src}"]
+    # safety: the pre-existing dest was not clobbered, its src remains
+    assert exists_dest.read_text() == "already here"
+    assert exists_src.exists()

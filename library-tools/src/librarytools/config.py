@@ -30,7 +30,7 @@ BUCKETS: tuple[str, ...] = ("LOOPS", "ONE-SHOTS", "PADS-DRONES", "OTHER")
 TO_DELETE_ROOT: Path = SAMPLES_ROOT / "_TO-DELETE"
 
 # Generated .tsv manifests live next to the package, in the repo (gitignored).
-MANIFEST_DIR: Path = Path(__file__).resolve().parents[2] / "manifests"
+MANIFEST_DIR: Path = Path(__file__).resolve().parents[2] / "manifests"  # parents[2] assumes src/librarytools/ layout
 
 # Files shorter than this (seconds) classify as one-shots when no keyword matched.
 DURATION_ONESHOT_MAX: float = 1.5
