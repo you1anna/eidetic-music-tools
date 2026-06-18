@@ -57,6 +57,16 @@ def test_drum_machine_abbreviations_map_to_roles():
     ).role == "PERC"
 
 
+def test_cabasa_is_perc_not_bass():
+    # 'cabasa'/'cabassa' contains the substring 'bass' but is a shaker.
+    assert review.classify_role(
+        Path("DRUM-KITS/Goldbaby.SP-1200.Vol.2/Cabassa1_SP1200R.wav")
+    ).role == "PERC"
+    assert review.classify_role(
+        Path("DRUM-KITS/Goldbaby.SP-1200/Cabasa_727TR1.wav")
+    ).role == "PERC"
+
+
 def test_abbreviations_do_not_false_match_full_words():
     # 'chord' must not hit hat-code 'ch'; 'ohio' must not hit 'oh'
     assert review.classify_role(

@@ -16,6 +16,7 @@ dev = ["pytest>=8"]
 sample-classify = "librarytools.classify:main"
 sample-dedupe = "librarytools.dedupe:main"
 sample-review = "librarytools.review:main"
+sample-sort = "librarytools.sort:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

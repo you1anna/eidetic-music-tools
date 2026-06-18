@@ -107,7 +107,7 @@ def classify_role(rel: Path, duration: float | None = None) -> RoleResult:
         ("KICKS", ("bassdrum", "bass drum", "bdrum", "kick", "kicks", "bd ", " bd", "sa909 bd")),
         ("CLAP-SNARE", ("clap", "claps", "snare", "snares", "rim", "sd ", " sd", "sa909 sd")),
         ("HATS-CYM", ("hihat", "hi hat", "hi-hat", "closedhh", "openhh", "hat", "hats", "cymbal", "cym", "ride", "crash", "shaker")),
-        ("PERC", ("perc", "percussion", "conga", "bongo", "tom", "agogo", "tribal")),
+        ("PERC", ("perc", "percussion", "conga", "bongo", "tom", "agogo", "tribal", "cabasa", "cabassa")),
         ("BASS", ("bass", "sub", "reese", "303")),
         ("SYNTH-STAB-CHORD", ("synth", "stab", "chord", "pluck", "arp", "lead", "sh101", "acid", "guitar", "keys", "piano")),
         ("DRONE-ATMOS", ("drone", "drones", "pad", "pads", "atmos", "ambience", "ambient", "texture", "textures", "field")),
