@@ -8,9 +8,16 @@ library. Review is **manifest-only**; tidy tools default to **dry-run** and
 - `sample-review` — proposes role folders and hardware-friendly filenames in a
   TSV manifest for human review. It indexes category, loop/one-shot type, BPM,
   key, and tempo fit. It never moves or renames originals.
-- `sample-classify` — sorts `_PACKS/`, `DRUM-KITS/`, `00_INBOX/` into sound-type
-  buckets: `LOOPS/ ONE-SHOTS/ PADS-DRONES/ OTHER/`, keeping one level of pack
-  grouping (`<bucket>/<pack>/...`). Curated role folders are left untouched.
+- `sample-sort` — the apply step for `sample-review`'s classification: moves
+  confidently-classified files **flat** into their role folder
+  (`<ROLE>/<proposed_name>`), using the same name/BPM/key analysis. Dry-run by
+  default; `--apply` moves and writes an undo manifest; `--include-review` also
+  gathers low-confidence files into `_REVIEW/`. Flat-name collisions get a `-N`
+  suffix so nothing is skipped. Move-only, never overwrites.
+- `sample-classify` — older coarse sorter: sorts `_PACKS/`, `DRUM-KITS/`,
+  `00_INBOX/` into sound-type buckets `LOOPS/ ONE-SHOTS/ PADS-DRONES/ OTHER/`,
+  keeping one level of pack grouping (`<bucket>/<pack>/...`). Superseded by
+  `sample-sort` for role-based organisation; kept for the loop/one-shot split.
 - `sample-dedupe` — finds byte-identical duplicates and moves the extras to
   `_TO-DELETE/dupes/` for a later human sign-off.
 
@@ -24,6 +31,7 @@ library. Review is **manifest-only**; tidy tools default to **dry-run** and
 ## Use
 
 ```bash
+ls() { ~/.venvs/library-tools/bin/sample-sort "$@"; }
 lc() { ~/.venvs/library-tools/bin/sample-classify "$@"; }
 ld() { ~/.venvs/library-tools/bin/sample-dedupe "$@"; }
 lr() { ~/.venvs/library-tools/bin/sample-review "$@"; }
@@ -31,14 +39,14 @@ lr() { ~/.venvs/library-tools/bin/sample-review "$@"; }
 lr --no-probe --summary
 lr --no-probe --output manifests/review.tsv
 lr --no-probe --output manifests/review.tsv --index-dir manifests/index
-lc                 # dry-run: counts table + plan manifest, nothing moved
-lc --no-probe      # faster dry-run, keyword signals only (skip duration probe)
-lc --apply         # move files into buckets, write undo manifest
+ls                        # dry-run: per-role counts + plan manifest, nothing moved
+ls --apply                # move classified files into <ROLE>/, write undo manifest
+ls --include-review --apply   # also gather low-confidence files into _REVIEW/
 ld                 # dry-run: how many dupes, ~GB reclaimable
 ld --apply         # move dupes to _TO-DELETE/dupes/, write undo manifest
 ```
 
-Run classify **before** dedupe so dedupe sees the final layout.
+Run sort (or the older classify) **before** dedupe so dedupe sees the final layout.
 
 ## Low-token manual workflow
 

@@ -62,6 +62,31 @@ def test_include_review_flag_gathers_review_files(tmp_path: Path):
     assert plan[0].dest.parent == root / "_REVIEW"
 
 
+def test_colliding_names_get_numeric_suffix(tmp_path: Path):
+    root = tmp_path / "SAMPLES"
+    # Two distinct files that normalise to the same proposed name.
+    _make(root, "DRUM-KITS/PackA/Kicks/Kick 909.wav")
+    _make(root, "DRUM-KITS/PackA/Kicks/Kick  909.wav")  # double space -> same name
+
+    plan = sort.build_plan(root=root)
+    dests = sorted(m.dest.name for m in plan)
+
+    assert len(plan) == 2
+    assert len(set(dests)) == 2  # collision resolved, not skipped
+    assert any(d.endswith("-2.wav") for d in dests)
+
+
+def test_collision_with_existing_disk_file_gets_suffix(tmp_path: Path):
+    root = tmp_path / "SAMPLES"
+    _make(root, "KICKS/kick-909_packa.wav")              # already in destination
+    _make(root, "DRUM-KITS/PackA/Kicks/Kick 909.wav")    # normalises to same name
+
+    plan = sort.build_plan(root=root)
+
+    assert len(plan) == 1
+    assert plan[0].dest.name == "kick-909_packa-2.wav"
+
+
 def test_apply_moves_file_and_writes_undo(tmp_path: Path, monkeypatch):
     root = tmp_path / "SAMPLES"
     src = _make(root, "DRUM-KITS/Pack/Kicks/Kick Big 909.wav")

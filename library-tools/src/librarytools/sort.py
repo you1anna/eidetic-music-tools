@@ -43,18 +43,37 @@ def iter_sources(root: Path) -> list[Path]:
     return sorted(found)
 
 
+def _unique_dest(dest: Path, claimed: set[Path]) -> Path:
+    """Return dest, or a `-N`-suffixed variant if it exists on disk or is claimed.
+
+    Resolves flat-name collisions (different files normalising to the same name)
+    so every source moves instead of being skipped. Byte-identical dupes are
+    handled separately by sample-dedupe, so suffixing here never loses content.
+    """
+    if dest not in claimed and not dest.exists():
+        return dest
+    n = 2
+    while True:
+        candidate = dest.with_name(f"{dest.stem}-{n}{dest.suffix}")
+        if candidate not in claimed and not candidate.exists():
+            return candidate
+        n += 1
+
+
 def build_plan(
     root: Path = config.SAMPLES_ROOT, include_review: bool = False
 ) -> list[moves.Move]:
     """Classify every in-scope file and plan a flat move into its role folder."""
     plan: list[moves.Move] = []
+    claimed: set[Path] = set()
     for path in iter_sources(root):
         rel = path.relative_to(root)
         result = review.classify_role(rel)
         if result.role == "_REVIEW" and not include_review:
             continue
         name = review.proposed_name(rel, result.role)
-        dest = root / result.role / name
+        dest = _unique_dest(root / result.role / name, claimed)
+        claimed.add(dest)
         plan.append(moves.Move(path, dest, f"{result.role}|{result.reason}"))
     return plan
 
