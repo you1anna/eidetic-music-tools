@@ -21,8 +21,8 @@ from . import config, moves, review
 # Top-level folders that are already destinations or staging — never sorted FROM.
 NON_SOURCE_DIRS: frozenset[str] = (
     frozenset(review.ROLE_FOLDERS)        # KICKS, HATS-CYM, ..., _REVIEW
-    | frozenset(config.DEDUPE_EXCLUDE)    # _EXPORT, _TO-DELETE, _QUARANTINE
-    | {"MIDI"}
+    | frozenset(config.DEDUPE_EXCLUDE)    # _EXPORT, _TO-DELETE, _QUARANTINE, PACKS
+    | {"MIDI", "CURATED"}                 # CURATED is the role destination zone, not a source
 )
 
 
@@ -72,7 +72,9 @@ def build_plan(
         if result.role == "_REVIEW" and not include_review:
             continue
         name = review.proposed_name(rel, result.role)
-        dest = _unique_dest(root / result.role / name, claimed)
+        # Real roles live under CURATED/; _REVIEW stays a top-level staging dir.
+        zone = root if result.role == "_REVIEW" else root / "CURATED"
+        dest = _unique_dest(zone / result.role / name, claimed)
         claimed.add(dest)
         plan.append(moves.Move(path, dest, f"{result.role}|{result.reason}"))
     return plan

@@ -20,10 +20,18 @@ def test_build_plan_targets_flat_role_dest(tmp_path: Path):
 
     assert len(plan) == 1
     move = plan[0]
-    # Flat: file lands directly under the role folder, not in a pack subfolder.
-    assert move.dest.parent == root / "KICKS"
+    # Flat: file lands directly under the role folder in the CURATED zone.
+    assert move.dest.parent == root / "CURATED" / "KICKS"
     assert move.dest.name.endswith(".wav")
     assert move.tag.startswith("KICKS|")
+
+
+def test_curated_and_packs_are_not_sources(tmp_path: Path):
+    root = tmp_path / "SAMPLES"
+    _make(root, "CURATED/KICKS/already.wav")    # curated zone (destination)
+    _make(root, "PACKS/vendor/loop.wav")        # raw packs zone (browse-only)
+
+    assert sort.build_plan(root=root) == []
 
 
 def test_review_files_are_left_unsorted_by_default(tmp_path: Path):
@@ -49,7 +57,7 @@ def test_top_level_vendor_folders_are_in_scope(tmp_path: Path):
     plan = sort.build_plan(root=root)
 
     assert len(plan) == 1
-    assert plan[0].dest.parent == root / "HATS-CYM"
+    assert plan[0].dest.parent == root / "CURATED" / "HATS-CYM"
 
 
 def test_include_review_flag_gathers_review_files(tmp_path: Path):
@@ -78,7 +86,7 @@ def test_colliding_names_get_numeric_suffix(tmp_path: Path):
 
 def test_collision_with_existing_disk_file_gets_suffix(tmp_path: Path):
     root = tmp_path / "SAMPLES"
-    _make(root, "KICKS/kick-909_packa.wav")              # already in destination
+    _make(root, "CURATED/KICKS/kick-909_packa.wav")      # already in destination
     _make(root, "DRUM-KITS/PackA/Kicks/Kick 909.wav")    # normalises to same name
 
     plan = sort.build_plan(root=root)
@@ -96,7 +104,7 @@ def test_apply_moves_file_and_writes_undo(tmp_path: Path, monkeypatch):
 
     assert code == 0
     assert not src.exists()
-    moved = list((root / "KICKS").glob("*.wav"))
+    moved = list((root / "CURATED" / "KICKS").glob("*.wav"))
     assert len(moved) == 1
 
 

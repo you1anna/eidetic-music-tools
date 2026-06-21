@@ -23,8 +23,10 @@ PACKS_ROOT: Path = SAMPLES_ROOT / "PACKS"
 # Top-level folders classify is allowed to read from (the messy bulk).
 IN_SCOPE: tuple[str, ...] = ("_PACKS", "DRUM-KITS", "00_INBOX")
 
-# Top-level folders dedupe never walks (staging / device exports).
-DEDUPE_EXCLUDE: tuple[str, ...] = ("_EXPORT", "_TO-DELETE", "_QUARANTINE")
+# Top-level folders dedupe never walks (staging / device exports / whole packs).
+# PACKS is excluded so vendor packs stay pristine and whole — a curated copy of a
+# pack file is a deliberate promotion, not a duplicate to remove.
+DEDUPE_EXCLUDE: tuple[str, ...] = ("_EXPORT", "_TO-DELETE", "_QUARANTINE", "PACKS")
 
 SOURCE_EXTS: frozenset[str] = frozenset(
     {".wav", ".aif", ".aiff", ".flac", ".mp3", ".ogg"}
