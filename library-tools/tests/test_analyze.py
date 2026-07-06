@@ -160,3 +160,56 @@ def test_write_features_outputs_tsv(tmp_path: Path):
     assert rows[0]["path"] == "PACKS/Vendor/Kicks/Kick.wav"
     assert rows[0]["role"] == "KICKS"
     assert "path:kick" in rows[0]["review_reason"]
+
+
+def test_build_crates_keeps_digitakt_and_tr8s_one_shot_oriented(tmp_path: Path, monkeypatch):
+    root = tmp_path / "SAMPLES"
+    kick = _make(root / "PACKS" / "Vendor" / "Kicks" / "Kick 909.wav")
+    hat = _make(root / "PACKS" / "Vendor" / "Hats" / "Tight Hat.wav")
+    loop = _make(root / "PACKS" / "Vendor" / "Drum Loops" / "Top Loop 132 BPM.wav")
+    durations = {kick: 0.4, hat: 0.2, loop: 4.0}
+    monkeypatch.setattr(analyze.probe, "duration", lambda path: durations[path])
+    registry = analyze.build_source_registry(root, analyze.detect_ot_sets(root))
+    features = analyze.build_feature_rows(root, registry, probe_durations=True)
+
+    crates = analyze.build_crates(features)
+
+    digitakt_paths = [entry.path.as_posix() for entry in crates["digitakt/punchy-techno-kit.txt"]]
+    tr8s_paths = [entry.path.as_posix() for entry in crates["tr8s/909-plus-weird-perc.txt"]]
+    ableton_paths = [entry.path.as_posix() for entry in crates["ableton/dub-techno-favourites.txt"]]
+    assert "PACKS/Vendor/Kicks/Kick 909.wav" in digitakt_paths
+    assert "PACKS/Vendor/Hats/Tight Hat.wav" in tr8s_paths
+    assert "PACKS/Vendor/Drum Loops/Top Loop 132 BPM.wav" not in digitakt_paths
+    assert "PACKS/Vendor/Drum Loops/Top Loop 132 BPM.wav" in ableton_paths
+
+
+def test_build_crates_includes_octatrack_set_install_plan(tmp_path: Path):
+    root = tmp_path / "SAMPLES"
+    ot = root / "PACKS" / "Caught on Tape 808+909"
+    _make(ot / "project.work")
+    _make(ot / "AUDIO" / "COT_BD_Orig.wav")
+    sets = analyze.detect_ot_sets(root)
+    registry = analyze.build_source_registry(root, sets)
+    features = analyze.build_feature_rows(root, registry, probe_durations=False)
+
+    crates = analyze.build_crates(features, ot_sets=sets)
+
+    set_plan = crates["octatrack/caught-on-tape-808-909-set.txt"]
+    audio_pool = crates["octatrack/dub-loop-bed-132.txt"]
+    assert set_plan[0].path == Path("PACKS/Caught on Tape 808+909")
+    assert set_plan[0].reason == "install-as-set;preserve-set"
+    assert audio_pool[0].path == Path("PACKS/Caught on Tape 808+909/AUDIO/COT_BD_Orig.wav")
+
+
+def test_write_crates_outputs_manifest_text_files(tmp_path: Path):
+    crates = {
+        "digitakt/punchy-techno-kit.txt": [
+            analyze.CrateEntry(Path("PACKS/Vendor/Kicks/Kick.wav"), "KICKS;short")
+        ]
+    }
+
+    analyze.write_crates(tmp_path, crates)
+
+    written = tmp_path / "crates" / "digitakt" / "punchy-techno-kit.txt"
+    assert written.exists()
+    assert "PACKS/Vendor/Kicks/Kick.wav" in written.read_text()
