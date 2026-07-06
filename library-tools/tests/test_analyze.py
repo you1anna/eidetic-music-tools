@@ -50,6 +50,26 @@ def test_write_ot_sets_outputs_tsv(tmp_path: Path):
     assert rows[0]["handling_policy"] == "preserve-set"
 
 
+def test_detect_ot_set_handles_sibling_audio_pool_layout(tmp_path: Path):
+    root = tmp_path / "SAMPLES"
+    set_root = root / "Elektron Pack" / "Readable Set Root"
+    control_root = set_root / "Cult Of SP1200"
+    _make(control_root / "project.work")
+    _make(control_root / "bank01.work")
+    _make(set_root / "AUDIO" / "SP_Kick.wav")
+    _make(set_root.parent / "install.pdf")
+
+    sets = analyze.detect_ot_sets(root)
+
+    assert len(sets) == 1
+    assert sets[0].set_name == "Cult Of SP1200"
+    assert sets[0].project_root == Path("Elektron Pack/Readable Set Root")
+    assert sets[0].audio_pool_root == Path("Elektron Pack/Readable Set Root/AUDIO")
+    assert sets[0].project_file_count == 2
+    assert sets[0].audio_file_count == 1
+    assert sets[0].doc_path == Path("Elektron Pack/install.pdf")
+
+
 def test_parse_processing_suffixes():
     assert analyze.parse_processing_suffix(Path("COT_BD_Orig.wav")) == (
         "original", "filename_suffix:Orig",
@@ -93,6 +113,22 @@ def test_source_registry_classifies_sources_and_ignores_noise(tmp_path: Path):
     assert by_path["PACKS/Plain Vendor/Kicks/Vendor Kick.wav"].source_kind == "vendor-pack-audio"
     assert "PACKS/Caught on Tape 808+909/AUDIO/._COT_BD_TapeSat.wav" not in by_path
     assert "_EXPORT/DIGITAKT/skip.wav" not in by_path
+
+
+def test_source_registry_handles_top_level_vendor_and_sibling_ot_audio(tmp_path: Path):
+    root = tmp_path / "SAMPLES"
+    set_root = root / "Elektron Pack" / "Readable Set Root"
+    control_root = set_root / "Cult Of SP1200"
+    _make(control_root / "project.work")
+    _make(set_root / "AUDIO" / "SP_Kick.wav")
+    _make(root / "Top Level Vendor" / "Kicks" / "Kick.wav")
+
+    rows = analyze.build_source_registry(root, analyze.detect_ot_sets(root))
+    by_path = {row.path.as_posix(): row for row in rows}
+
+    assert by_path["Elektron Pack/Readable Set Root/AUDIO/SP_Kick.wav"].source_kind == "octatrack-set-audio"
+    assert by_path["Elektron Pack/Readable Set Root/Cult Of SP1200/project.work"].source_kind == "octatrack-set-project"
+    assert by_path["Top Level Vendor/Kicks/Kick.wav"].source_kind == "vendor-pack-audio"
 
 
 def test_write_source_registry_outputs_tsv(tmp_path: Path):
@@ -181,6 +217,28 @@ def test_build_crates_keeps_digitakt_and_tr8s_one_shot_oriented(tmp_path: Path, 
     assert "PACKS/Vendor/Hats/Tight Hat.wav" in tr8s_paths
     assert "PACKS/Vendor/Drum Loops/Top Loop 132 BPM.wav" not in digitakt_paths
     assert "PACKS/Vendor/Drum Loops/Top Loop 132 BPM.wav" in ableton_paths
+
+
+def test_digitakt_crate_balances_one_shot_roles_before_filling(tmp_path: Path, monkeypatch):
+    root = tmp_path / "SAMPLES"
+    durations = {}
+    for idx in range(40):
+        path = _make(root / "PACKS" / "Vendor" / "Claps" / f"Clap {idx:02d}.wav")
+        durations[path] = 0.3
+    kick = _make(root / "PACKS" / "Vendor" / "Kicks" / "Kick 909.wav")
+    hat = _make(root / "PACKS" / "Vendor" / "Hats" / "Hat Tight.wav")
+    perc = _make(root / "PACKS" / "Vendor" / "Perc" / "Perc Tom.wav")
+    durations[kick] = durations[hat] = durations[perc] = 0.3
+    monkeypatch.setattr(analyze.probe, "duration", lambda path: durations[path])
+    registry = analyze.build_source_registry(root, analyze.detect_ot_sets(root))
+    features = analyze.build_feature_rows(root, registry, probe_durations=True)
+
+    crates = analyze.build_crates(features)
+
+    digitakt_paths = [entry.path.as_posix() for entry in crates["digitakt/punchy-techno-kit.txt"]]
+    assert "PACKS/Vendor/Kicks/Kick 909.wav" in digitakt_paths
+    assert "PACKS/Vendor/Hats/Hat Tight.wav" in digitakt_paths
+    assert "PACKS/Vendor/Perc/Perc Tom.wav" in digitakt_paths
 
 
 def test_build_crates_includes_octatrack_set_install_plan(tmp_path: Path):

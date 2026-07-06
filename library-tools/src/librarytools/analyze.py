@@ -81,11 +81,12 @@ def _rel(path: Path, root: Path) -> Path:
     return path.relative_to(root)
 
 
-def _first_doc(path: Path, root: Path) -> Path | None:
-    docs = sorted(
-        p for p in path.rglob("*")
+def _first_doc(paths: list[Path], root: Path) -> Path | None:
+    docs = sorted({
+        p for path in paths if path.is_dir()
+        for p in path.rglob("*")
         if p.is_file() and not _is_ignored(_rel(p, root)) and p.suffix.lower() in DOC_EXTS
-    )
+    })
     return _rel(docs[0], root) if docs else None
 
 
@@ -98,44 +99,48 @@ def _audio_count(path: Path, root: Path) -> int:
     )
 
 
-def _candidate_dirs(root: Path) -> list[Path]:
-    dirs: set[Path] = set()
-    for base_name in ("PACKS", "_PACKS"):
-        base = root / base_name
-        if not base.is_dir():
+def _candidate_sets(root: Path) -> list[tuple[Path, Path]]:
+    sets: dict[Path, Path] = {}
+    for project_file in root.rglob("project.work"):
+        if not project_file.is_file():
             continue
-        for project_file in base.rglob("project.work"):
-            if project_file.is_file() and not _is_ignored(_rel(project_file, root)):
-                dirs.add(project_file.parent)
-    for project_file in root.glob("*/project.work"):
-        if project_file.is_file() and not _is_ignored(_rel(project_file, root)):
-            dirs.add(project_file.parent)
-    return sorted(dirs)
+        rel = _rel(project_file, root)
+        if _is_ignored(rel) or _is_staging(rel):
+            continue
+        control_root = project_file.parent
+        if (control_root / "AUDIO").is_dir():
+            set_root = control_root
+        elif (control_root.parent / "AUDIO").is_dir():
+            set_root = control_root.parent
+        else:
+            set_root = control_root
+        sets[set_root] = control_root
+    return sorted(sets.items())
 
 
 def detect_ot_sets(root: Path) -> list[OtSet]:
     """Detect Octatrack Sets under the sample root without mutating anything."""
     sets: list[OtSet] = []
-    for project_root in _candidate_dirs(root):
-        audio_pool = project_root / "AUDIO"
+    for set_root, control_root in _candidate_sets(root):
+        audio_pool = set_root / "AUDIO"
         audio_file_count = _audio_count(audio_pool, root)
         project_files = sorted(
-            p for p in project_root.rglob("*.work")
+            p for p in set_root.rglob("*.work")
             if p.is_file() and not _is_ignored(_rel(p, root))
         )
         strd_files = sorted(
-            p for p in project_root.rglob("*.strd")
+            p for p in set_root.rglob("*.strd")
             if p.is_file() and not _is_ignored(_rel(p, root))
         )
         sets.append(
             OtSet(
-                set_name=project_root.name,
-                project_root=_rel(project_root, root),
+                set_name=control_root.name,
+                project_root=_rel(set_root, root),
                 audio_pool_root=_rel(audio_pool, root),
                 project_file_count=len(project_files),
                 strd_file_count=len(strd_files),
                 audio_file_count=audio_file_count,
-                doc_path=_first_doc(project_root, root),
+                doc_path=_first_doc([set_root, set_root.parent], root),
             )
         )
     return sets
@@ -190,6 +195,8 @@ def _source_kind(rel: Path, ot_sets: list[OtSet]) -> str | None:
     if rel.parts[:1] == ("CURATED",):
         return "curated-sample"
     if rel.parts[:1] in {("PACKS",), ("_PACKS",)}:
+        return "vendor-pack-audio"
+    if rel.parts and rel.parts[0] not in set(review.ROLE_FOLDERS) | set(config.DEDUPE_EXCLUDE) | {"CURATED", "MIDI"}:
         return "vendor-pack-audio"
     return None
 
@@ -378,16 +385,49 @@ def _entry(row: FeatureRow) -> CrateEntry:
     return CrateEntry(row.path, _crate_reason(row))
 
 
+def _balanced_one_shots(
+    rows: list[FeatureRow],
+    quotas: dict[str, int],
+    max_entries: int,
+) -> list[CrateEntry]:
+    by_role: dict[str, list[FeatureRow]] = {
+        role: [row for row in rows if row.role == role and _one_shot_candidate(row)]
+        for role in quotas
+    }
+    selected: list[FeatureRow] = []
+    seen: set[Path] = set()
+    for role, quota in quotas.items():
+        for row in by_role[role][:quota]:
+            selected.append(row)
+            seen.add(row.path)
+    leftovers = [
+        row for role in quotas for row in by_role[role]
+        if row.path not in seen
+    ]
+    for row in leftovers:
+        if len(selected) >= max_entries:
+            break
+        selected.append(row)
+    return [_entry(row) for row in selected[:max_entries]]
+
+
 def build_crates(
     rows: list[FeatureRow],
     ot_sets: list[OtSet] | None = None,
 ) -> dict[str, list[CrateEntry]]:
     """Build small deterministic device-aware crate suggestions."""
     sorted_rows = sorted(rows, key=lambda row: row.path.as_posix())
-    one_shots = [_entry(row) for row in sorted_rows if _one_shot_candidate(row)]
     crates: dict[str, list[CrateEntry]] = {
-        "digitakt/punchy-techno-kit.txt": one_shots[:32],
-        "tr8s/909-plus-weird-perc.txt": one_shots[:64],
+        "digitakt/punchy-techno-kit.txt": _balanced_one_shots(
+            sorted_rows,
+            {"KICKS": 8, "CLAP-SNARE": 6, "HATS-CYM": 10, "PERC": 8},
+            32,
+        ),
+        "tr8s/909-plus-weird-perc.txt": _balanced_one_shots(
+            sorted_rows,
+            {"KICKS": 12, "CLAP-SNARE": 12, "HATS-CYM": 20, "PERC": 20},
+            64,
+        ),
         "ableton/dub-techno-favourites.txt": [_entry(row) for row in sorted_rows[:96]],
         "octatrack/dub-loop-bed-132.txt": [
             _entry(row)
