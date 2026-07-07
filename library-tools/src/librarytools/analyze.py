@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from . import config, probe, review
 
 AUDIO_EXTS: frozenset[str] = config.SOURCE_EXTS
 DOC_EXTS: frozenset[str] = frozenset({".pdf", ".txt", ".md", ".rtf", ".nfo", ".url"})
+DEVICE_SAMPLE_EXTS: frozenset[str] = frozenset({".wav", ".aif", ".aiff"})
+DEVICE_SKIP_TOKENS: tuple[str, ...] = ("audio demo", "demo", "preview", "audition")
 
 
 @dataclass(frozen=True)
@@ -381,8 +384,97 @@ def _one_shot_candidate(row: FeatureRow) -> bool:
     return row.duration is None or row.duration <= 3.0
 
 
+def _curated_role_matches(row: FeatureRow) -> bool:
+    if row.source_kind != "curated-sample":
+        return True
+    return (
+        len(row.path.parts) >= 2
+        and row.path.parts[0] == "CURATED"
+        and row.path.parts[1] == row.role
+    )
+
+
+def _device_one_shot_candidate(row: FeatureRow) -> bool:
+    text = row.path.as_posix().lower().replace("_", " ").replace("-", " ")
+    return (
+        _one_shot_candidate(row)
+        and row.path.suffix.lower() in DEVICE_SAMPLE_EXTS
+        and not _has(text, *DEVICE_SKIP_TOKENS)
+        and _curated_role_matches(row)
+    )
+
+
+def _audition_candidate(row: FeatureRow) -> bool:
+    text = row.path.as_posix().lower().replace("_", " ").replace("-", " ")
+    return not _has(text, *DEVICE_SKIP_TOKENS) and _curated_role_matches(row)
+
+
+def _octatrack_candidate(row: FeatureRow) -> bool:
+    return _audition_candidate(row) and row.path.suffix.lower() in DEVICE_SAMPLE_EXTS
+
+
 def _entry(row: FeatureRow) -> CrateEntry:
     return CrateEntry(row.path, _crate_reason(row))
+
+
+def _flat_file_family(name: str) -> str:
+    stem = Path(name).stem.lower()
+    main, source = stem.split("_", 1) if "_" in stem else (stem, "")
+    shaped = []
+    last = ""
+    for char in main.replace("_", "-"):
+        value = "#" if char.isdigit() else char
+        if value == "#" and last == "#":
+            continue
+        shaped.append(value)
+        last = value
+    family = "".join(shaped).strip("-") or main
+    if source:
+        return f"{source.replace('_', '-')}/{family}"
+    return family
+
+
+def _crate_family(row: FeatureRow) -> str:
+    parts = row.path.parts
+    if row.source_kind == "curated-sample" and len(parts) >= 3:
+        if len(parts) >= 4:
+            return "/".join(parts[:3])
+        return "/".join([parts[0], parts[1], _flat_file_family(parts[2])])
+    if row.source_kind == "octatrack-set-audio":
+        try:
+            audio_idx = parts.index("AUDIO")
+        except ValueError:
+            return row.source_name
+        end = min(len(parts) - 1, audio_idx + 4)
+        return "/".join(parts[:end])
+    if len(parts) >= 3:
+        return "/".join(parts[:3])
+    return row.source_name or row.path.parent.as_posix()
+
+
+def _diverse_rows(rows: list[FeatureRow], limit: int) -> list[FeatureRow]:
+    groups: dict[str, list[FeatureRow]] = {}
+    order: list[str] = []
+    for row in rows:
+        family = _crate_family(row)
+        if family not in groups:
+            groups[family] = []
+            order.append(family)
+        groups[family].append(row)
+
+    selected: list[FeatureRow] = []
+    while len(selected) < limit:
+        progressed = False
+        for family in order:
+            if not groups[family]:
+                continue
+            selected.append(groups[family].pop(0))
+            progressed = True
+            if len(selected) >= limit:
+                break
+        if not progressed:
+            break
+    return selected
 
 
 def _balanced_one_shots(
@@ -391,24 +483,75 @@ def _balanced_one_shots(
     max_entries: int,
 ) -> list[CrateEntry]:
     by_role: dict[str, list[FeatureRow]] = {
-        role: [row for row in rows if row.role == role and _one_shot_candidate(row)]
+        role: [row for row in rows if row.role == role and _device_one_shot_candidate(row)]
         for role in quotas
     }
     selected: list[FeatureRow] = []
     seen: set[Path] = set()
     for role, quota in quotas.items():
-        for row in by_role[role][:quota]:
+        for row in _diverse_rows(by_role[role], quota):
             selected.append(row)
             seen.add(row.path)
-    leftovers = [
+    leftovers = _diverse_rows([
         row for role in quotas for row in by_role[role]
         if row.path not in seen
-    ]
+    ], max_entries - len(selected))
     for row in leftovers:
         if len(selected) >= max_entries:
             break
         selected.append(row)
     return [_entry(row) for row in selected[:max_entries]]
+
+
+def _balanced_role_rows(
+    rows: list[FeatureRow],
+    quotas: dict[str, int],
+    max_entries: int,
+    predicate: Callable[[FeatureRow], bool],
+) -> list[FeatureRow]:
+    selected: list[FeatureRow] = []
+    seen: set[Path] = set()
+    for role, quota in quotas.items():
+        candidates = [
+            row for row in rows
+            if row.role == role and row.path not in seen and predicate(row)
+        ]
+        for row in _diverse_rows(candidates, quota):
+            selected.append(row)
+            seen.add(row.path)
+    fallback = [
+        row for row in rows
+        if row.path not in seen and predicate(row)
+    ]
+    for row in _diverse_rows(fallback, max_entries - len(selected)):
+        if len(selected) >= max_entries:
+            break
+        selected.append(row)
+        seen.add(row.path)
+    return selected[:max_entries]
+
+
+def _octatrack_bed_rows(rows: list[FeatureRow], max_entries: int) -> list[FeatureRow]:
+    selected: list[FeatureRow] = []
+    seen: set[Path] = set()
+    ot_pool = _balanced_role_rows(
+        rows,
+        {"KICKS": 4, "CLAP-SNARE": 4, "HATS-CYM": 4, "PERC": 4},
+        16,
+        lambda row: row.source_kind == "octatrack-set-audio" and _octatrack_candidate(row),
+    )
+    for row in ot_pool:
+        selected.append(row)
+        seen.add(row.path)
+    selected.extend(
+        _balanced_role_rows(
+            [row for row in rows if row.path not in seen],
+            {"DRUM-LOOPS": 18, "DRONE-ATMOS": 18, "SYNTH-STAB-CHORD": 14, "FX-RISE-IMPACT": 14},
+            max_entries - len(selected),
+            _octatrack_candidate,
+        )
+    )
+    return selected[:max_entries]
 
 
 def build_crates(
@@ -428,13 +571,29 @@ def build_crates(
             {"KICKS": 12, "CLAP-SNARE": 12, "HATS-CYM": 20, "PERC": 20},
             64,
         ),
-        "ableton/dub-techno-favourites.txt": [_entry(row) for row in sorted_rows[:96]],
-        "octatrack/dub-loop-bed-132.txt": [
+        "ableton/dub-techno-favourites.txt": [
             _entry(row)
-            for row in sorted_rows
-            if row.source_kind == "octatrack-set-audio"
-            or row.role in {"DRUM-LOOPS", "DRONE-ATMOS", "SYNTH-STAB-CHORD", "FX-RISE-IMPACT"}
-        ][:64],
+            for row in _balanced_role_rows(
+                sorted_rows,
+                {
+                    "DRUM-LOOPS": 18,
+                    "DRONE-ATMOS": 18,
+                    "SYNTH-STAB-CHORD": 18,
+                    "BASS": 14,
+                    "FX-RISE-IMPACT": 12,
+                    "VOCALS": 8,
+                    "PERC": 4,
+                    "HATS-CYM": 2,
+                    "CLAP-SNARE": 1,
+                    "KICKS": 1,
+                },
+                96,
+                _audition_candidate,
+            )
+        ],
+        "octatrack/dub-loop-bed-132.txt": [
+            _entry(row) for row in _octatrack_bed_rows(sorted_rows, 64)
+        ],
     }
     for ot_set in sorted(ot_sets or [], key=lambda item: item.project_root.as_posix()):
         slug = review.normalise_token(ot_set.set_name)

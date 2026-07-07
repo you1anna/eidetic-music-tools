@@ -241,6 +241,24 @@ def test_digitakt_crate_balances_one_shot_roles_before_filling(tmp_path: Path, m
     assert "PACKS/Vendor/Perc/Perc Tom.wav" in digitakt_paths
 
 
+def test_device_crates_skip_demos_unfriendly_formats_and_mismatched_curated_roles(tmp_path: Path):
+    root = tmp_path / "SAMPLES"
+    _make(root / "CURATED" / "KICKS" / "Kick Good.wav")
+    _make(root / "CURATED" / "KICKS" / "AUDIO DEMO" / "Kick Demo.mp3")
+    _make(root / "CURATED" / "DRONE-ATMOS" / "Hat From Atmos.wav")
+    _make(root / "CURATED" / "HATS-CYM" / "Hat Good.wav")
+    registry = analyze.build_source_registry(root, analyze.detect_ot_sets(root))
+    features = analyze.build_feature_rows(root, registry, probe_durations=False)
+
+    crates = analyze.build_crates(features)
+
+    digitakt_paths = [entry.path.as_posix() for entry in crates["digitakt/punchy-techno-kit.txt"]]
+    assert "CURATED/KICKS/Kick Good.wav" in digitakt_paths
+    assert "CURATED/HATS-CYM/Hat Good.wav" in digitakt_paths
+    assert "CURATED/KICKS/AUDIO DEMO/Kick Demo.mp3" not in digitakt_paths
+    assert "CURATED/DRONE-ATMOS/Hat From Atmos.wav" not in digitakt_paths
+
+
 def test_build_crates_includes_octatrack_set_install_plan(tmp_path: Path):
     root = tmp_path / "SAMPLES"
     ot = root / "PACKS" / "Caught on Tape 808+909"
