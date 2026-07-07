@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -25,6 +26,30 @@ AUDIO_EXTS: frozenset[str] = config.SOURCE_EXTS
 DOC_EXTS: frozenset[str] = frozenset({".pdf", ".txt", ".md", ".rtf", ".nfo", ".url"})
 DEVICE_SAMPLE_EXTS: frozenset[str] = frozenset({".wav", ".aif", ".aiff"})
 DEVICE_SKIP_TOKENS: tuple[str, ...] = ("audio demo", "demo", "preview", "audition")
+CURATED_ONE_SHOT_ROLES: frozenset[str] = frozenset({"KICKS", "CLAP-SNARE", "HATS-CYM", "PERC"})
+CURATED_LONG_AUDIO_SECONDS: float = 3.0
+CURATED_LONG_TAIL_MS: float = 3000.0
+_ROLE_SIGNAL_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+ROLE_CONFLICT_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("KICKS", ("bassdrum", "bass drum", "bdrum", "kick", "kicks", "bd")),
+    ("CLAP-SNARE", ("clap", "claps", "snare", "snares", "rim", "sd", "rs")),
+    ("HATS-CYM", ("hihat", "hi hat", "hat", "hats", "hh", "cymbal", "cym", "ride", "crash", "shaker")),
+    ("PERC", (
+        "perc", "percussion", "conga", "bongo", "tom", "agogo", "tribal",
+        "cabasa", "cabassa", "cow", "clave", "block", "tamb", "quijada",
+        "timbale", "timb", "tabla", "triangle", "guiro", "maraca", "whistle",
+        "finger", "fingers",
+    )),
+    ("DRUM-LOOPS", ("drum loop", "top loop", "beat loop", "loop", "loops", "groove", "grooves")),
+    ("BASS", ("bass", "reese")),
+    ("SYNTH-STAB-CHORD", ("synth", "stab", "chord", "pluck", "arp", "lead", "sh101", "acid", "guitar", "keys", "piano")),
+    ("DRONE-ATMOS", ("drone", "drones", "pad", "pads", "atmos", "ambience", "ambient", "texture", "textures", "field")),
+    ("FX-RISE-IMPACT", (
+        "fx", "sfx", "impact", "riser", "rise", "uplifter", "downlifter",
+        "sweep", "swell", "noise", "scratch", "door", "chime",
+    )),
+    ("VOCALS", ("vocal", "vocals", "vox", "voice", "voices", "acapella", "accapella")),
+)
 
 
 @dataclass(frozen=True)
@@ -98,6 +123,15 @@ class ClusterRow:
     cluster_label: str
     distance_to_centroid: float
     is_representative: bool
+
+
+@dataclass(frozen=True)
+class CuratedRoleConflict:
+    path: Path
+    current_role: str
+    issues: str
+    reasons: str
+    suggested_action: str
 
 
 def _is_ignored(path: Path) -> bool:
@@ -525,6 +559,118 @@ def write_features(path: Path, rows: list[FeatureRow]) -> None:
             ])
 
 
+def _curated_content_path(rel: Path) -> Path:
+    if len(rel.parts) >= 3 and rel.parts[0] == "CURATED":
+        return Path(*rel.parts[2:])
+    return rel
+
+
+def _normalised_signal_text(rel: Path) -> tuple[str, set[str]]:
+    text = " ".join(
+        part.lower().replace("_", " ").replace("-", " ").replace(".", " ")
+        for part in rel.parts
+    )
+    tokens = {token for token in _ROLE_SIGNAL_SPLIT_RE.split(text) if token}
+    return text, tokens
+
+
+def _token_matches_signal(token: str, signal: str) -> bool:
+    return token == signal or token.startswith(signal)
+
+
+def _signal_reasons(rel: Path, role: str) -> list[str]:
+    text, tokens = _normalised_signal_text(rel)
+    reasons: list[str] = []
+    for signal_role, signals in ROLE_CONFLICT_SIGNALS:
+        if signal_role != role:
+            continue
+        for raw_signal in signals:
+            signal = raw_signal.lower().replace("-", " ")
+            if " " in signal:
+                if signal in text:
+                    reasons.append(raw_signal)
+            elif any(_token_matches_signal(token, signal) for token in tokens):
+                reasons.append(raw_signal)
+    return reasons
+
+
+def curated_role_conflict(row: FeatureRow) -> CuratedRoleConflict | None:
+    current_role = _curated_folder_role(row.path)
+    if current_role is None:
+        return None
+    content_path = _curated_content_path(row.path)
+    issues: list[str] = []
+    reasons: list[str] = []
+
+    def add(issue: str, reason: str) -> None:
+        if issue not in issues:
+            issues.append(issue)
+        if reason not in reasons:
+            reasons.append(reason)
+
+    for signal_role, _signals in ROLE_CONFLICT_SIGNALS:
+        if signal_role == current_role:
+            continue
+        for reason in _signal_reasons(content_path, signal_role):
+            add(signal_role, f"{signal_role}:{reason}")
+
+    if current_role in CURATED_ONE_SHOT_ROLES:
+        if row.sample_type == "loop":
+            add("DRUM-LOOPS", "sample_type:loop")
+        duration = row.duration if row.duration is not None else row.duration_s
+        if duration is not None and duration > CURATED_LONG_AUDIO_SECONDS:
+            add("long-audio", f"duration={duration:.2f}s")
+        elif row.tail_ms is not None and row.tail_ms > CURATED_LONG_TAIL_MS:
+            add("long-audio", f"tail_ms={_fmt_num(row.tail_ms)}")
+
+    if not issues:
+        return None
+    return CuratedRoleConflict(
+        path=row.path,
+        current_role=current_role,
+        issues=";".join(issues),
+        reasons=";".join(reasons),
+        suggested_action="review-or-quarantine",
+    )
+
+
+def curated_role_conflicts(rows: list[FeatureRow]) -> list[CuratedRoleConflict]:
+    conflicts = [conflict for row in rows if (conflict := curated_role_conflict(row)) is not None]
+    return sorted(conflicts, key=lambda item: item.path.as_posix())
+
+
+def _one_shot_role_cluster_issue(row: FeatureRow) -> bool:
+    if row.role not in CURATED_ONE_SHOT_ROLES:
+        return False
+    if _signal_reasons(row.path, "DRUM-LOOPS"):
+        return True
+    duration = row.duration if row.duration is not None else row.duration_s
+    if duration is not None and duration > CURATED_LONG_AUDIO_SECONDS:
+        return True
+    return row.tail_ms is not None and row.tail_ms > CURATED_LONG_TAIL_MS
+
+
+def write_curated_role_conflicts(path: Path, rows: list[CuratedRoleConflict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh, delimiter="\t")
+        writer.writerow([
+            "path",
+            "current_role",
+            "issues",
+            "reasons",
+            "suggested_action",
+        ])
+        for row in rows:
+            writer.writerow([
+                row.path.as_posix(),
+                row.current_role,
+                row.issues,
+                row.reasons,
+                row.suggested_action,
+            ])
+
+
 CLUSTER_FEATURES: tuple[str, ...] = (
     "duration_s",
     "rms",
@@ -545,6 +691,10 @@ CLUSTER_FEATURES: tuple[str, ...] = (
 def _cluster_vector(row: FeatureRow) -> list[float] | None:
     text = row.path.as_posix().lower().replace("_", " ").replace("-", " ")
     if _has(text, *DEVICE_SKIP_TOKENS):
+        return None
+    if curated_role_conflict(row) is not None:
+        return None
+    if _one_shot_role_cluster_issue(row):
         return None
     if row.audio_error:
         return None
@@ -751,12 +901,17 @@ def _device_one_shot_candidate(row: FeatureRow) -> bool:
         and row.path.suffix.lower() in DEVICE_SAMPLE_EXTS
         and not _has(text, *DEVICE_SKIP_TOKENS)
         and _curated_role_matches(row)
+        and curated_role_conflict(row) is None
     )
 
 
 def _audition_candidate(row: FeatureRow) -> bool:
     text = row.path.as_posix().lower().replace("_", " ").replace("-", " ")
-    return not _has(text, *DEVICE_SKIP_TOKENS) and _curated_role_matches(row)
+    return (
+        not _has(text, *DEVICE_SKIP_TOKENS)
+        and _curated_role_matches(row)
+        and curated_role_conflict(row) is None
+    )
 
 
 def _octatrack_candidate(row: FeatureRow) -> bool:
@@ -997,6 +1152,7 @@ def write_report(
     features: list[FeatureRow],
     crates: dict[str, list[CrateEntry]],
     clusters: list[ClusterRow] | None = None,
+    curated_conflicts: list[CuratedRoleConflict] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     source_counts: dict[str, int] = {}
@@ -1040,6 +1196,15 @@ def write_report(
             rep = representatives.get(key)
             suffix = f" — rep: {rep.as_posix()}" if rep else ""
             lines.append(f"- {key[0]}/{key[1]}: {count}{suffix}")
+    if curated_conflicts is not None:
+        lines.extend(["", "## Curated Role Conflicts"])
+        lines.append(f"- total: {len(curated_conflicts)}")
+        issue_counts: dict[str, int] = {}
+        for row in curated_conflicts:
+            for issue in row.issues.split(";"):
+                issue_counts[issue] = issue_counts.get(issue, 0) + 1
+        for issue, count in sorted(issue_counts.items()):
+            lines.append(f"- {issue}: {count}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -1111,20 +1276,31 @@ def main(argv: list[str] | None = None) -> int:
         audio_features=not args.no_probe,
         cache_path=args.feature_cache,
     )
+    curated_conflicts = curated_role_conflicts(features)
     clusters = cluster_within_role(features)
     crates = build_crates(features, ot_sets=sets, clusters=clusters)
 
     write_ot_sets(args.output_dir / "ot-sets-latest.tsv", sets)
     write_source_registry(args.output_dir / "source-registry-latest.tsv", sources)
     write_features(args.output_dir / "sample-features-latest.tsv", features)
+    write_curated_role_conflicts(args.output_dir / "curated-role-conflicts-latest.tsv", curated_conflicts)
     write_clusters(args.output_dir / "clusters-latest.tsv", clusters)
     write_crates(args.output_dir, crates)
-    write_report(args.output_dir / "reports" / "pilot.md", sets, sources, features, crates, clusters)
+    write_report(
+        args.output_dir / "reports" / "pilot.md",
+        sets,
+        sources,
+        features,
+        crates,
+        clusters,
+        curated_conflicts,
+    )
 
     print(f"[MANIFEST-ONLY] sample intelligence {args.root}")
     print(f"  ot sets: {len(sets)}")
     print(f"  source rows: {len(sources)}")
     print(f"  feature rows: {len(features)}")
+    print(f"  curated role conflicts: {len(curated_conflicts)}")
     print(f"  clusters: {len(clusters)}")
     print(f"  crates: {len(crates)}")
     print(f"  output dir: {args.output_dir}")

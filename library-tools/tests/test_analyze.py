@@ -21,12 +21,14 @@ def _feature_row(
     centroid_hz: float,
     flatness: float,
     tags: str,
+    source_kind: str = "vendor-pack-audio",
+    role: str = "KICKS",
 ) -> analyze.FeatureRow:
     return analyze.FeatureRow(
         path=Path(path),
-        source_kind="vendor-pack-audio",
+        source_kind=source_kind,
         source_name="Vendor",
-        role="KICKS",
+        role=role,
         sample_type="one-shot",
         bpm="",
         key="",
@@ -448,6 +450,187 @@ def test_cluster_within_role_skips_demo_preview_candidates():
     assert "CURATED/KICKS/AUDIO DEMO/TUNED KICKS DEMO.mp3" not in paths
 
 
+def test_curated_role_conflicts_report_misfiled_kick_markers():
+    rows = [
+        _feature_row(
+            "CURATED/KICKS/kick-clap-lastmin2-sp12f_samples.wav",
+            sub_ratio=0.3,
+            tail_ms=220,
+            centroid_hz=1200,
+            flatness=0.1,
+            tags="short",
+            source_kind="curated-sample",
+        ),
+        _feature_row(
+            "CURATED/KICKS/kick-hh-oldtool4-sp12_samples.wav",
+            sub_ratio=0.2,
+            tail_ms=155,
+            centroid_hz=4200,
+            flatness=0.45,
+            tags="short;clicky",
+            source_kind="curated-sample",
+        ),
+        _feature_row(
+            "CURATED/KICKS/kick-sample_sean.mp3",
+            sub_ratio=0.86,
+            tail_ms=243483,
+            centroid_hz=90,
+            flatness=0.02,
+            tags="subby;rumble-long",
+            source_kind="curated-sample",
+        ),
+        _feature_row(
+            "CURATED/KICKS/kick-triangle-3-sp12r_samples.wav",
+            sub_ratio=0.2,
+            tail_ms=600,
+            centroid_hz=3000,
+            flatness=0.3,
+            tags="",
+            source_kind="curated-sample",
+        ),
+        _feature_row(
+            "CURATED/KICKS/kick-scratch-vinyl09-sp12f_samples.wav",
+            sub_ratio=0.4,
+            tail_ms=180,
+            centroid_hz=2000,
+            flatness=0.2,
+            tags="short",
+            source_kind="curated-sample",
+        ),
+        _feature_row(
+            "CURATED/KICKS/kick-dsm1-bd-c-tape2-r1_sa909_samples.wav",
+            sub_ratio=0.98,
+            tail_ms=1350,
+            centroid_hz=80,
+            flatness=0.02,
+            tags="subby;rumble-long",
+            source_kind="curated-sample",
+        ),
+    ]
+
+    conflicts = analyze.curated_role_conflicts(rows)
+
+    by_path = {row.path.as_posix(): row for row in conflicts}
+    assert set(by_path) == {
+        "CURATED/KICKS/kick-clap-lastmin2-sp12f_samples.wav",
+        "CURATED/KICKS/kick-hh-oldtool4-sp12_samples.wav",
+        "CURATED/KICKS/kick-sample_sean.mp3",
+        "CURATED/KICKS/kick-triangle-3-sp12r_samples.wav",
+        "CURATED/KICKS/kick-scratch-vinyl09-sp12f_samples.wav",
+    }
+    assert by_path["CURATED/KICKS/kick-clap-lastmin2-sp12f_samples.wav"].issues == "CLAP-SNARE"
+    assert by_path["CURATED/KICKS/kick-hh-oldtool4-sp12_samples.wav"].issues == "HATS-CYM"
+    assert by_path["CURATED/KICKS/kick-sample_sean.mp3"].issues == "long-audio"
+    assert by_path["CURATED/KICKS/kick-triangle-3-sp12r_samples.wav"].issues == "PERC"
+    assert by_path["CURATED/KICKS/kick-scratch-vinyl09-sp12f_samples.wav"].issues == "FX-RISE-IMPACT"
+
+
+def test_write_curated_role_conflicts_outputs_review_manifest(tmp_path: Path):
+    conflicts = [
+        analyze.CuratedRoleConflict(
+            path=Path("CURATED/KICKS/kick-clap.wav"),
+            current_role="KICKS",
+            issues="CLAP-SNARE",
+            reasons="CLAP-SNARE:clap",
+            suggested_action="review-or-quarantine",
+        )
+    ]
+    out = tmp_path / "conflicts.tsv"
+
+    analyze.write_curated_role_conflicts(out, conflicts)
+
+    rows = list(csv.DictReader(out.open(), delimiter="\t"))
+    assert rows[0]["path"] == "CURATED/KICKS/kick-clap.wav"
+    assert rows[0]["issues"] == "CLAP-SNARE"
+    assert rows[0]["suggested_action"] == "review-or-quarantine"
+
+
+def test_curated_role_conflicts_do_not_treat_bpm_alone_as_drum_loop():
+    rows = [
+        _feature_row(
+            "CURATED/BASS/VETH1 Bassloops 124 BPM/VETH1 Bassloops 124 BPM 001 - A C D.wav",
+            sub_ratio=0.8,
+            tail_ms=1200,
+            centroid_hz=120,
+            flatness=0.02,
+            tags="subby",
+            source_kind="curated-sample",
+            role="BASS",
+        )
+    ]
+
+    assert analyze.curated_role_conflicts(rows) == []
+
+
+def test_cluster_within_role_skips_curated_role_conflicts():
+    rows = analyze.cluster_within_role([
+        _feature_row(
+            "CURATED/KICKS/Good Kick 0.wav",
+            sub_ratio=0.85,
+            tail_ms=120,
+            centroid_hz=80,
+            flatness=0.02,
+            tags="subby;short",
+            source_kind="curated-sample",
+        ),
+        _feature_row(
+            "CURATED/KICKS/Good Kick 1.wav",
+            sub_ratio=0.86,
+            tail_ms=121,
+            centroid_hz=81,
+            flatness=0.02,
+            tags="subby;short",
+            source_kind="curated-sample",
+        ),
+        _feature_row(
+            "CURATED/KICKS/kick-cym-lastmin6st-sp12r_samples.wav",
+            sub_ratio=0.1,
+            tail_ms=800,
+            centroid_hz=5000,
+            flatness=0.5,
+            tags="",
+            source_kind="curated-sample",
+        ),
+    ])
+
+    paths = {row.path.as_posix() for row in rows}
+    assert "CURATED/KICKS/Good Kick 0.wav" in paths
+    assert "CURATED/KICKS/kick-cym-lastmin6st-sp12r_samples.wav" not in paths
+
+
+def test_cluster_within_role_skips_one_shot_role_loop_folders():
+    rows = analyze.cluster_within_role([
+        _feature_row(
+            "PACKS/Vendor/Kicks/Good Kick 0.wav",
+            sub_ratio=0.85,
+            tail_ms=120,
+            centroid_hz=80,
+            flatness=0.02,
+            tags="subby;short",
+        ),
+        _feature_row(
+            "PACKS/Vendor/Kicks/Good Kick 1.wav",
+            sub_ratio=0.86,
+            tail_ms=121,
+            centroid_hz=81,
+            flatness=0.02,
+            tags="subby;short",
+        ),
+        _feature_row(
+            "PACKS/filterheadz-hardgroove-techno/Kick Loops/Kick020.wav",
+            sub_ratio=0.9,
+            tail_ms=900,
+            centroid_hz=100,
+            flatness=0.02,
+            tags="subby;rumble-long",
+        ),
+    ])
+
+    paths = {row.path.as_posix() for row in rows}
+    assert "PACKS/Vendor/Kicks/Good Kick 0.wav" in paths
+    assert "PACKS/filterheadz-hardgroove-techno/Kick Loops/Kick020.wav" not in paths
+
+
 def test_write_clusters_outputs_representative_tsv(tmp_path: Path):
     rows = analyze.cluster_within_role([
         _feature_row("PACKS/Vendor/Kicks/Sub 0.wav", sub_ratio=0.85, tail_ms=120, centroid_hz=80, flatness=0.02, tags="subby;short"),
@@ -516,6 +699,7 @@ def test_main_writes_full_pilot_artifacts_without_moving_sources(tmp_path: Path)
     assert (out / "ot-sets-latest.tsv").exists()
     assert (out / "source-registry-latest.tsv").exists()
     assert (out / "sample-features-latest.tsv").exists()
+    assert (out / "curated-role-conflicts-latest.tsv").exists()
     assert (out / "clusters-latest.tsv").exists()
     assert (out / "crates" / "digitakt" / "punchy-techno-kit.txt").exists()
     assert (out / "crates" / "octatrack" / "caught-on-tape-808-909-set.txt").exists()

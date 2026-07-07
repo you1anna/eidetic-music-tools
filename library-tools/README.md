@@ -88,6 +88,7 @@ Generated artifacts land under `manifests/sample-intelligence-pilot/`:
 ot-sets-latest.tsv
 source-registry-latest.tsv
 sample-features-latest.tsv
+curated-role-conflicts-latest.tsv
 clusters-latest.tsv
 crates/<device>/*.txt
 reports/pilot.md
@@ -109,6 +110,9 @@ What this is useful for:
   `centroid_hz=4500` before trusting a tag.
 - Surfacing obvious rule mistakes in the path/tag heuristics before any export
   or physical library move.
+- Flagging suspicious `CURATED/<role>` rows for review/quarantine when the role
+  folder conflicts with filename/path clues or one-shot roles contain long/loop
+  material.
 
 What it does **not** prove yet:
 
