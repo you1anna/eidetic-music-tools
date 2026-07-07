@@ -43,7 +43,8 @@ Date: 2026-07-07
 The Active -> Operationalising gate is still not met. The exact blockers are:
 
 - No human ear-check has validated the regenerated representative clusters.
-- The SSD is still an unbacked exFAT production archive, so physical sample moves or operating routines remain too risky.
+- Backup/APFS was previously a blocker, but Robin confirmed on 2026-07-07 that the SSD is backed up,
+  and `diskutil info "/Volumes/Extreme SSD"` verifies APFS. That storage blocker is closed.
 
 Action taken without crossing the gate:
 
@@ -54,4 +55,6 @@ Action taken without crossing the gate:
 - The KICKS queue contains 8 representative files, one per current KICKS cluster.
 - The all-representatives TSV contains 88 representative rows plus header.
 
-Recommendation remains: hold project-state advancement, audition the KICKS packet, then build the read-only near-duplicate manifest from concrete audition/duplicate-management needs.
+Recommendation remains: hold project-state advancement until the KICKS packet is auditioned. After
+ear-checks, the project can move into an operationalising-style pass for reviewed, reversible
+sample-management manifests.

@@ -22,16 +22,16 @@ Target sound: hypnotic / dub / raw / hard-groove techno (~130–150 BPM).
 ## Storage & workflow
 
 See **[`docs/STORAGE-AND-WORKFLOW.md`](docs/STORAGE-AND-WORKFLOW.md)** for the storage
-strategy (the SSD should move from exFAT → **APFS** since it's Mac-only; cards stay exFAT;
-**backup is the current top priority — there is none yet**) and the creative-workflow vision
-the tooling is built to serve (hardware jam → Ableton, resample in the OT, finish in Ableton).
+strategy. As of 2026-07-07, the Extreme SSD is **APFS** and Robin has confirmed it is backed up;
+device cards still stay exFAT/FAT as required by the hardware. The tooling serves the creative
+workflow: hardware jam → Ableton, resample in the OT, finish in Ableton.
 
 ## Note on layout
 
-This repo lives at the **root of the SSD (exFAT for now)**, but Python virtualenvs do **not**
-belong on exFAT (no exec bits / symlinks). Each tool's venv lives on the Mac under `~/.venvs/`
-and is editable-installed against the source here — and **each machine needs its own venv**.
-See each tool's `README.md` for setup.
+On the Mac mini, this repo currently lives at `/Users/macmini/Projects/eidetic-music-tools`.
+The sample library lives on the APFS SSD at `/Volumes/Extreme SSD/Production/SAMPLES/`.
+Each tool still uses a per-machine venv under `~/.venvs/` unless deliberately migrated; see each
+tool's `README.md` for setup.
 
 The library itself lives at `/Volumes/Extreme SSD/Production/SAMPLES/` (not in this
 repo) — see its `README.md` for the taxonomy and naming convention.

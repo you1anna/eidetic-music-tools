@@ -5,16 +5,16 @@ Convert and sync curated samples from the SSD library to **Octatrack MKII**,
 source to that device's spec with `ffmpeg`, and stages the result in
 `SAMPLES/_EXPORT/<DEVICE>/` ready to copy to a card.
 
-Source lives on the SSD (this repo); the **venv lives on the Mac** (APFS). The SSD
-is exFAT and a venv there is unreliable (no exec bit / symlinks), so we keep the
-venv off it and editable-install it against this source.
+On the Mac mini, source lives at `/Users/macmini/Projects/eidetic-music-tools/sample-tools`.
+The sample library lives on the APFS SSD. The venv is still per-machine and lives under `~/.venvs/`
+by convention.
 
 ## Install
 
 ```bash
 brew install ffmpeg python@3.12          # prerequisites
 /opt/homebrew/bin/python3.12 -m venv ~/.venvs/sample-tools
-~/.venvs/sample-tools/bin/pip install -e "/Volumes/Extreme SSD/eidetic-music-tools/sample-tools"
+~/.venvs/sample-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-music-tools/sample-tools"
 ```
 
 That provides the `sample-export` console script inside the venv. The repo's

@@ -24,11 +24,11 @@ library. Review is **manifest-only**; tidy tools default to **dry-run** and
 - `sample-dedupe` — finds byte-identical duplicates and moves the extras to
   `_TO-DELETE/dupes/` for a later human sign-off.
 
-## Install (venv on the Mac, never on the exFAT SSD)
+## Install (per-machine venv)
 
 ```bash
 /opt/homebrew/bin/python3.12 -m venv ~/.venvs/library-tools
-~/.venvs/library-tools/bin/pip install -e "/Volumes/Extreme SSD/eidetic-music-tools/library-tools[dev]"
+~/.venvs/library-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-music-tools/library-tools[dev]"
 ```
 
 ## Use
@@ -217,5 +217,6 @@ those moves to roll back. `manifests/` is gitignored.
 
 ## Safety
 
-The SSD is exFAT with no backup. These tools move-only, never overwrite (a colliding
-destination is skipped and logged), default to dry-run, and stage rather than delete.
+The SSD is APFS and backed up as of 2026-07-07, but the tools stay conservative:
+move-only, never overwrite (a colliding destination is skipped and logged), default to
+dry-run, and stage rather than delete.

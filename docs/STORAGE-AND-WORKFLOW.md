@@ -7,37 +7,25 @@ hard-groove techno (~130–150 BPM). Everything below is decided unless marked o
 
 ## Storage / format
 
-The Extreme SSD is currently **exFAT**. The drive is **Mac-only** (never needs Windows),
-so exFAT is the wrong default. Limitations that matter here:
+The Extreme SSD is now **APFS**. Verified on 2026-07-07 with `diskutil info "/Volumes/Extreme SSD"`:
+`File System Personality: APFS`, mounted read/write, 2 TB total with about 696 GB free at the time
+of the check. Robin also confirmed the SSD is backed up.
 
-| Issue | Impact |
-|---|---|
-| **No journaling** | A bad eject / crash / power loss mid-write can corrupt files or the volume. |
-| **No Time Machine** | macOS will not back up an exFAT volume at all. |
-| **Slow on huge file counts** | `SAMPLES/` has tens of thousands of files; browse/scan/`ffprobe` sweeps are slower than APFS. |
-| **Weak Spotlight indexing** | In-Finder search of the library is unreliable. |
-| **No symlinks / exec bits / xattrs** | Breaks venvs, git hooks, Finder tags; spawns `._*` AppleDouble litter. |
-| Not a problem | File-size limits (exFAT is fine for large audio); Ableton sessions run okay. |
+**Current layout (decided):**
+- **Master library + production archive → APFS SSD.** The sample library is at
+  `/Volumes/Extreme SSD/Production/SAMPLES/`.
+- **Working repo mirror on the Mac mini → local APFS disk.** Current path:
+  `/Users/macmini/Projects/eidetic-music-tools`.
+- **Device cards (Octatrack CF, Digitakt +Drive, TR-8S SD) → exFAT/FAT** — required by the hardware.
+  These are built by `sample-tools` export, so they stay disposable/re-syncable.
 
-**Target layout (decided):**
-- **Master library + production projects + dev → APFS.** Journaled, Time Machine-able,
-  fast, native venvs/git, Spotlight search. This is where creative work and code belong.
-- **Device cards (Octatrack CF, Digitakt +Drive, TR-8S SD) → exFAT/FAT** — *required* by
-  the hardware. These are built by `sample-tools` export, so they stay disposable/re-syncable.
+**Resolved gate:** the old "back up before APFS migration" blocker is closed as of 2026-07-07.
+Physical sample moves are still review-gated: generate a manifest first, inspect it, then apply only
+reversible moves with undo manifests.
 
-**Migration path (do in order — destructive, so backup is the gate):**
-1. **Back up the SSD first (TOP PRIORITY — there is currently NO backup).** The SSD is the
-   only copy of the library + productions. Use a second physical drive (Carbon Copy Cloner
-   or `rsync -a`) and/or cloud before touching anything risky.
-2. Reformat the SSD to **APFS** (consider APFS Encrypted), restore the data.
-3. Enable **Time Machine** for ongoing backups once it's APFS.
-4. Until step 2: **always eject cleanly**; avoid heavy in-place edits of live Ableton sets
-   off the unbacked exFAT volume.
-
-> Once the SSD is APFS, this repo's venv can live beside the source on the SSD. While it's
-> exFAT, the venv must stay on the Mac (`~/.venvs/sample-tools`) — and **each machine needs
-> its own venv** (a venv is machine-local). On the Mac mini: `brew install ffmpeg python@3.12`,
-> then `python3.12 -m venv ~/.venvs/sample-tools && pip install -e <repo>/sample-tools`.
+Each machine still needs its own venv. On the Mac mini the current convention remains:
+`brew install ffmpeg python@3.12`, then `python3.12 -m venv ~/.venvs/<tool>` and editable-install
+against `/Users/macmini/Projects/eidetic-music-tools/<tool>`.
 
 ## Creative workflow (what the tooling should serve)
 
@@ -73,7 +61,7 @@ What that implies for tooling:
 | `inbox-sort/` | planned | Fast intake of new downloads from `SAMPLES/00_INBOX/` into roles + naming. |
 | vocal/loop prep | idea | Trim silence, normalise, BPM/key-tag vocal cuts & loops → clean drops into Ableton + OT. |
 | jam/stem intake | idea | Organise + label recorded Ableton jam stems so good moments become reusable library assets. |
-| backup | idea | Scripted `rsync`/CCC backup (interim while exFAT; less critical once APFS + Time Machine). |
+| backup | resolved gate / maintain | SSD backed up per Robin on 2026-07-07; keep ongoing backup/restore checks as maintenance, not a blocker for reviewed sample-management manifests. |
 
 Open: whether to surface curated favourites into Ableton's User Library / Places for one-click
 access (worth exploring once `inventory` exists).
