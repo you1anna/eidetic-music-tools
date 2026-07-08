@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from . import audiofeatures, config, probe, review
+from . import audiofeatures, classifier, config, probe, review
 from .featurecache import FEATURE_COLUMNS, FeatureCache, FeatureRecord
 
 try:
@@ -1488,6 +1488,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--pilot", action="store_true", help="run the phase-1 pilot output set")
     ap.add_argument(
+        "--classifier",
+        action="store_true",
+        help=(
+            "vote every CURATED file with the drum-role classifier and write "
+            "role-audit-latest.tsv (needs local weights at config.DRUM_MODEL_PATH). "
+            "Runs on its own unless --pilot is also given."
+        ),
+    )
+    ap.add_argument(
         "--feature-cache",
         type=Path,
         default=config.MANIFEST_DIR / "sample-intelligence.sqlite",
@@ -1503,6 +1512,25 @@ def main(argv: list[str] | None = None) -> int:
     if not args.root.is_dir():
         print(f"root not found: {args.root}", file=sys.stderr)
         return 2
+
+    if args.classifier:
+        if not classifier.available():
+            print(
+                "classifier unavailable: install the 'classifier' extra (torch+librosa) and "
+                f"place weights at {config.DRUM_MODEL_PATH}",
+                file=sys.stderr,
+            )
+            if not args.pilot:
+                return 3
+        else:
+            audit = classifier.build_role_audit(args.root)
+            out_path = args.output_dir / "role-audit-latest.tsv"
+            classifier.write_role_audit(out_path, audit)
+            print(f"[MANIFEST-ONLY] drum-role audit: {len(audit)} rows -> {out_path}")
+            for line in classifier.summarise_role_audit(audit):
+                print(f"  {line}")
+        if not args.pilot:
+            return 0
 
     sets = detect_ot_sets(args.root)
     sources = build_source_registry(args.root, sets)

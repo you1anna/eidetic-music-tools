@@ -14,6 +14,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Drum-role classifier vote (sample-analyze --classifier). Heavy + optional so the core
+# tidy tools stay light. Weights are user-supplied (unlicensed upstream), never shipped.
+classifier = ["torch>=2.2", "librosa>=0.10"]
 
 [project.scripts]
 sample-classify = "librarytools.classify:main"

@@ -2,6 +2,9 @@
 .venv/
 venv/
 
+# Throwaway spike area (cloned third-party repos, experiment scripts) — not for commit.
+.spikes/
+
 # Python build/cache
 __pycache__/
 *.pyc

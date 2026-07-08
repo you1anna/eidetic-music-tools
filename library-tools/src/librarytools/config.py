@@ -39,6 +39,13 @@ TO_DELETE_ROOT: Path = SAMPLES_ROOT / "_TO-DELETE"
 # Generated .tsv manifests live next to the package, in the repo (gitignored).
 MANIFEST_DIR: Path = Path(__file__).resolve().parents[2] / "manifests"  # parents[2] assumes src/librarytools/ layout
 
+# Optional drum-role classifier weights. USER-SUPPLIED and gitignored: the upstream
+# weights carry no license, so they are never committed or redistributed — the package
+# only ships the integration and loads the file if present. Override with DRUM_MODEL_PATH.
+DRUM_MODEL_PATH: Path = Path(
+    os.environ.get("DRUM_MODEL_PATH", str(MANIFEST_DIR.parent / "models" / "drum-cnn-lstm.model"))
+)
+
 # Files shorter than this (seconds) classify as one-shots when no keyword matched.
 DURATION_ONESHOT_MAX: float = 1.5
 
