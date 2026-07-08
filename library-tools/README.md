@@ -106,15 +106,18 @@ existing role-conflict signals. It optimises for precision: a file is
 `likely_kick` only when the evidence strongly supports it; unusual-but-plausible
 kicks stay in `review`.
 
-- `reject_as_kick` rows (clap/snare, hat/cymbal, loops, long impacts, and
-  clean-named but noisy one-shots) are **excluded** from KICKS representatives and
-  device-crate picks — they stay visible in the manifests but never get presented
-  as kicks.
-- `likely_kick` and `review` rows remain eligible for the audition packet;
-  `review` rows still need a manual ear-check before you trust them as KICKS.
+- `likely_kick` rows are the only KICKS candidates allowed into representatives
+  and device-crate picks.
+- `review` rows stay visible in the audit for manual follow-up, but do not get
+  presented as kicks until the acoustic gate can promote them.
+- `reject_as_kick` rows (clap/snare, hat/cymbal, loops, long impacts, short
+  midrange clicks, and clean-named but noisy one-shots) stay visible in the
+  manifests and are kept out of KICKS selection.
 
 This is manifest-only: it never moves or renames files, and a fresh ear-check is
-still required before any physical reclassification.
+still required before any physical reclassification. Run the pilot without
+`--no-probe` when you need trustworthy KICKS representatives or crates; no-probe
+runs do not have enough acoustic evidence to promote KICKS rows to `likely_kick`.
 
 The command is manifest-only: it does not move, delete, rewrite, convert, or copy
 sample files. By default it now decodes samples read-only, writes Tier-1 acoustic

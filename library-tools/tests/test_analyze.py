@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from pathlib import Path
 
 from librarytools import analyze
@@ -70,6 +71,37 @@ def _feature_row(
         character_tags=tags,
         tag_reasons="test",
     )
+
+
+def _with_likely_kick_features(rows: list[analyze.FeatureRow], *paths: str) -> list[analyze.FeatureRow]:
+    likely_paths = {Path(path) for path in paths}
+    return [
+        replace(
+            row,
+            duration=0.31,
+            duration_s=0.31,
+            peak=0.9,
+            rms=0.3,
+            crest=8.0,
+            attack_ms=3.2,
+            tail_ms=160.0,
+            head_silence_ms=0.0,
+            tail_silence_ms=10.0,
+            centroid_hz=150.0,
+            flatness=0.02,
+            sub_ratio=0.82,
+            low_ratio=0.91,
+            mid_ratio=0.07,
+            high_ratio=0.02,
+            onset_density=0.4,
+            zcr=0.02,
+            character_tags="subby;short",
+            tag_reasons="test-likely-kick",
+        )
+        if row.path in likely_paths
+        else row
+        for row in rows
+    ]
 
 
 def test_detect_ot_set_registers_project_audio_and_docs(tmp_path: Path):
@@ -345,6 +377,7 @@ def test_build_crates_keeps_digitakt_and_tr8s_one_shot_oriented(tmp_path: Path, 
     monkeypatch.setattr(analyze.probe, "duration", lambda path: durations[path])
     registry = analyze.build_source_registry(root, analyze.detect_ot_sets(root))
     features = analyze.build_feature_rows(root, registry, probe_durations=True)
+    features = _with_likely_kick_features(features, "PACKS/Vendor/Kicks/Kick 909.wav")
 
     crates = analyze.build_crates(features)
 
@@ -370,6 +403,7 @@ def test_digitakt_crate_balances_one_shot_roles_before_filling(tmp_path: Path, m
     monkeypatch.setattr(analyze.probe, "duration", lambda path: durations[path])
     registry = analyze.build_source_registry(root, analyze.detect_ot_sets(root))
     features = analyze.build_feature_rows(root, registry, probe_durations=True)
+    features = _with_likely_kick_features(features, "PACKS/Vendor/Kicks/Kick 909.wav")
 
     crates = analyze.build_crates(features)
 
@@ -387,6 +421,7 @@ def test_device_crates_skip_demos_unfriendly_formats_and_mismatched_curated_role
     _make(root / "CURATED" / "HATS-CYM" / "Hat Good.wav")
     registry = analyze.build_source_registry(root, analyze.detect_ot_sets(root))
     features = analyze.build_feature_rows(root, registry, probe_durations=False)
+    features = _with_likely_kick_features(features, "CURATED/KICKS/Kick Good.wav")
 
     crates = analyze.build_crates(features)
 
@@ -653,6 +688,35 @@ def test_kick_gate_rejects_role_conflicts_and_loops():
     assert analyze.kick_gate(loop).kick_gate == "reject_as_kick"
 
 
+def test_kick_gate_rejects_short_midrange_clicks_without_name_signal():
+    # Real miss shape from Robin's second KICKS audition: short tail, very
+    # little sub energy, mid-dominant spectrum, and elevated centroid. This is
+    # acoustic evidence, not a filename `click` rule.
+    click = _feature_row(
+        "CURATED/KICKS/clean-named-midrange-transient.wav",
+        source_kind="curated-sample",
+        sub_ratio=0.08,
+        low_ratio=0.62,
+        mid_ratio=0.38,
+        high_ratio=0.0,
+        tail_ms=177.6,
+        centroid_hz=1589.49,
+        flatness=0.01,
+        tags="short",
+        duration=0.65,
+        attack_ms=1.41,
+        onset_density=0.0,
+        zcr=0.07,
+        crest=6.0,
+    )
+
+    gate = analyze.kick_gate(click)
+
+    assert gate.kick_gate == "reject_as_kick"
+    assert gate.review_action == "keep-out-of-kicks"
+    assert "mid_ratio" in gate.reasons
+
+
 def test_kick_gate_routes_missing_or_borderline_audio_to_review():
     missing = _feature_row(
         "CURATED/KICKS/unreadable.wav",
@@ -841,9 +905,9 @@ def test_kick_audit_includes_only_kicks_candidates_sorted_by_path():
     assert [row.kick_gate for row in audit] == ["review", "likely_kick"]
 
 
-def test_cluster_within_role_excludes_reject_as_kick_but_keeps_review():
-    # High-precision first pass drops only reject_as_kick; likely and review
-    # KICKS rows stay eligible to cluster.
+def test_cluster_within_role_keeps_only_likely_kicks():
+    # KICKS review rows stay visible in kick-audit-latest.tsv, but they do not
+    # become cluster representatives until the acoustic gate can call them likely.
     rows = [
         _likely_kick("CURATED/KICKS/likely-a.wav"),
         _review_kick("CURATED/KICKS/review-b.wav"),
@@ -854,11 +918,11 @@ def test_cluster_within_role_excludes_reject_as_kick_but_keeps_review():
 
     paths = {row.path.as_posix() for row in clusters}
     assert "CURATED/KICKS/likely-a.wav" in paths
-    assert "CURATED/KICKS/review-b.wav" in paths
+    assert "CURATED/KICKS/review-b.wav" not in paths
     assert "CURATED/KICKS/reject-c.wav" not in paths
 
 
-def test_build_crates_excludes_reject_as_kick():
+def test_build_crates_keeps_only_likely_kicks():
     likely = _likely_kick("CURATED/KICKS/likely.wav")
     review = _review_kick("CURATED/KICKS/review.wav")
     reject = _reject_kick("CURATED/KICKS/reject.wav")
@@ -867,7 +931,7 @@ def test_build_crates_excludes_reject_as_kick():
 
     all_paths = {entry.path.as_posix() for entries in crates.values() for entry in entries}
     assert "CURATED/KICKS/likely.wav" in all_paths
-    assert "CURATED/KICKS/review.wav" in all_paths
+    assert "CURATED/KICKS/review.wav" not in all_paths
     assert "CURATED/KICKS/reject.wav" not in all_paths
 
 
@@ -982,6 +1046,7 @@ def test_build_crates_includes_octatrack_set_install_plan(tmp_path: Path):
     sets = analyze.detect_ot_sets(root)
     registry = analyze.build_source_registry(root, sets)
     features = analyze.build_feature_rows(root, registry, probe_durations=False)
+    features = _with_likely_kick_features(features, "PACKS/Caught on Tape 808+909/AUDIO/COT_BD_Orig.wav")
 
     crates = analyze.build_crates(features, ot_sets=sets)
 

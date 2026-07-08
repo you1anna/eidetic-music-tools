@@ -696,6 +696,10 @@ KICK_REJECT_HIGH_RATIO = 0.45
 KICK_REJECT_CENTROID_HZ = 3500.0
 KICK_REJECT_CENTROID_MIN_SUB = 0.45
 KICK_REJECT_ZCR = 0.18
+KICK_REJECT_MID_CLICK_TAIL_MS = 250.0
+KICK_REJECT_MID_CLICK_SUB_RATIO = 0.30
+KICK_REJECT_MID_CLICK_MID_RATIO = 0.35
+KICK_REJECT_MID_CLICK_CENTROID_HZ = 1500.0
 
 
 def _kick_gate_row(
@@ -770,7 +774,24 @@ def kick_gate(row: FeatureRow) -> KickGateRow:
             reasons.append(_reason("onset_density", row.onset_density))
         return _kick_gate_row(row, "reject_as_kick", "high", reasons, "keep-out-of-kicks")
 
-    # 5. High-frequency / noisy spectral profile: hat/cymbal/noise, not kick.
+    # 5. Short midrange transient: click/percussion with too little sub body,
+    #    not a kick. This deliberately uses acoustic shape, not name tokens.
+    if (
+        row.mid_ratio is not None
+        and row.tail_ms <= KICK_REJECT_MID_CLICK_TAIL_MS
+        and row.sub_ratio < KICK_REJECT_MID_CLICK_SUB_RATIO
+        and row.mid_ratio >= KICK_REJECT_MID_CLICK_MID_RATIO
+        and row.centroid_hz >= KICK_REJECT_MID_CLICK_CENTROID_HZ
+    ):
+        reasons = [
+            _reason("tail_ms", row.tail_ms),
+            _reason("sub_ratio", row.sub_ratio),
+            _reason("mid_ratio", row.mid_ratio),
+            _reason("centroid_hz", row.centroid_hz),
+        ]
+        return _kick_gate_row(row, "reject_as_kick", "high", reasons, "keep-out-of-kicks")
+
+    # 6. High-frequency / noisy spectral profile: hat/cymbal/noise, not kick.
     if (
         row.high_ratio >= KICK_REJECT_HIGH_RATIO
         or (row.centroid_hz >= KICK_REJECT_CENTROID_HZ and row.sub_ratio < KICK_REJECT_CENTROID_MIN_SUB)
@@ -785,7 +806,7 @@ def kick_gate(row: FeatureRow) -> KickGateRow:
             reasons.append(_reason("zcr", row.zcr))
         return _kick_gate_row(row, "reject_as_kick", "high", reasons, "keep-out-of-kicks")
 
-    # 6. Strong likely-kick evidence: every precision gate passes.
+    # 7. Strong likely-kick evidence: every precision gate passes.
     likely = (
         row.sub_ratio >= KICK_MIN_LIKELY_SUB_RATIO
         and row.low_ratio >= KICK_MIN_LIKELY_LOW_RATIO
@@ -806,7 +827,7 @@ def kick_gate(row: FeatureRow) -> KickGateRow:
         ]
         return _kick_gate_row(row, "likely_kick", "high", reasons, "audition-as-kick")
 
-    # 7. Plausible but not high-precision: hold for a human ear-check.
+    # 8. Plausible but not high-precision: hold for a human ear-check.
     return _kick_gate_row(row, "review", "medium", ["mixed-evidence"], "ear-check-before-kick")
 
 
@@ -822,10 +843,9 @@ def kick_audit(rows: list[FeatureRow]) -> list[KickGateRow]:
 
 
 def _passes_kick_gate(row: FeatureRow) -> bool:
-    # High-precision first pass: drop only clear non-kicks (reject_as_kick).
-    # likely_kick and review rows stay eligible for representatives/crate picks;
-    # a fresh ear-check still gates any physical reclassification.
-    return row.role != "KICKS" or kick_gate(row).kick_gate != "reject_as_kick"
+    # KICKS review rows stay visible in kick-audit-latest.tsv, but only
+    # likely_kick rows can become representatives or device-crate picks.
+    return row.role != "KICKS" or kick_gate(row).kick_gate == "likely_kick"
 
 
 def _fmt_audit_value(value: float | None) -> str:
