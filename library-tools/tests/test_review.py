@@ -165,6 +165,32 @@ def test_write_manifest_outputs_review_rows_without_moving_files(tmp_path: Path)
     assert rows[0]["warnings"] == ""
 
 
+def test_build_review_indexes_current_two_zone_sources(tmp_path: Path):
+    root = tmp_path / "SAMPLES"
+    sources = [
+        root / "PACKS" / "Vendor" / "Kicks" / "Kick Big 909.wav",
+        root / "_REVIEW" / "Sean" / "o.wav",
+        root / "Top Level Vendor" / "Claps" / "Clap 808.wav",
+    ]
+    skipped = [
+        root / "CURATED" / "KICKS" / "already-curated.wav",
+        root / "_EXPORT" / "DIGITAKT" / "exported.wav",
+        root / "_QUARANTINE" / "Pack" / "quarantined.wav",
+    ]
+    for src in sources + skipped:
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_text("audio")
+
+    items = review.build_review(root=root, probe_durations=False)
+    paths = {item.source.as_posix() for item in items}
+
+    assert paths == {
+        "PACKS/Vendor/Kicks/Kick Big 909.wav",
+        "_REVIEW/Sean/o.wav",
+        "Top Level Vendor/Claps/Clap 808.wav",
+    }
+
+
 def test_main_writes_explicit_manifest_without_apply(tmp_path: Path):
     root = tmp_path / "SAMPLES"
     src = root / "_PACKS" / "Sean" / "Pack" / "Drum Loops" / "Loop 132 BPM.wav"

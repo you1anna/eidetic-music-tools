@@ -28,6 +28,11 @@ ROLE_FOLDERS: tuple[str, ...] = (
     "_REVIEW",
 )
 
+REVIEW_SKIP_TOP: frozenset[str] = (
+    (frozenset(ROLE_FOLDERS) - {"_REVIEW"})
+    | {"CURATED", "MIDI", "_EXPORT", "_TO-DELETE", "_QUARANTINE"}
+)
+
 _BPM_RE = re.compile(r"(?<!\d)(\d{2,3})\s*bpm(?!\d)", re.IGNORECASE)
 _BRACKET_BPM_RE = re.compile(r"\[(\d{2,3})\]")
 _BARE_BPM_RE = re.compile(r"(?<![a-z0-9])([6-9]\d|1\d\d|200)(?![a-z0-9])", re.IGNORECASE)
@@ -267,9 +272,8 @@ def proposed_name(rel: Path, role: str) -> str:
 
 def _iter_sources(root: Path) -> list[Path]:
     found: list[Path] = []
-    for scope in config.IN_SCOPE:
-        base = root / scope
-        if not base.is_dir():
+    for base in sorted(root.iterdir()):
+        if not base.is_dir() or base.name in REVIEW_SKIP_TOP or base.name.startswith("."):
             continue
         for path in base.rglob("*"):
             if not path.is_file():

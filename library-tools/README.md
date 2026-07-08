@@ -7,7 +7,9 @@ library. Review is **manifest-only**; tidy tools default to **dry-run** and
 
 - `sample-review` — proposes role folders and hardware-friendly filenames in a
   TSV manifest for human review. It indexes category, loop/one-shot type, BPM,
-  key, and tempo fit. It never moves or renames originals.
+  key, and tempo fit across `PACKS/`, `_REVIEW/`, and top-level incoming vendor
+  folders. It skips `CURATED/` and staging/export folders, and never moves or
+  renames originals.
 - `sample-analyze` — writes a read-only sample-intelligence pilot: Octatrack Set
   registry, source registry, feature/tag TSV, device crate suggestions, and a
   short report.
