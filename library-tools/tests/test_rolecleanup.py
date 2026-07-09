@@ -176,3 +176,103 @@ def test_select_calibration_returns_every_small_route(tmp_path: Path) -> None:
         candidates,
         key=lambda item: item.path.as_posix(),
     )
+
+
+def test_snapshot_audit_is_repeatable_but_refuses_changed_source(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "role-audit-latest.tsv"
+    source.write_text("header\nfirst\n", encoding="utf-8")
+    output = tmp_path / "run"
+
+    baseline = rolecleanup.snapshot_audit(source, output)
+
+    assert baseline.name == "role-audit-baseline.tsv"
+    assert baseline.read_text(encoding="utf-8") == "header\nfirst\n"
+    assert (output / "role-audit-baseline.sha256").read_text().strip()
+    assert rolecleanup.snapshot_audit(source, output) == baseline
+
+    source.write_text("header\nchanged\n", encoding="utf-8")
+    with pytest.raises(
+        ValueError,
+        match="baseline already exists with different content",
+    ):
+        rolecleanup.snapshot_audit(source, output)
+
+
+def test_write_prepare_artifacts_creates_route_checklist_playlist_and_labels(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "SAMPLES"
+    source = root / "CURATED" / "KICKS" / "pack" / "a.wav"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"audio")
+    audit = tmp_path / "role-audit.tsv"
+    _write_audit(
+        audit,
+        [
+            _row(
+                "CURATED/KICKS/pack/a.wav",
+                "KICKS",
+                "CLAP-SNARE",
+                "0.91",
+            ),
+        ],
+    )
+    output = tmp_path / "run"
+
+    routes = rolecleanup.write_prepare_artifacts(audit, root, output)
+
+    route_dir = routes[("KICKS", "CLAP-SNARE")]
+    assert (route_dir / "candidates.tsv").is_file()
+    assert (
+        route_dir / "checklist.md"
+    ).read_text(encoding="utf-8").count("- [ ]") == 1
+    assert (route_dir / "audition.m3u8").read_text(
+        encoding="utf-8"
+    ).splitlines() == [
+        "#EXTM3U",
+        str(source),
+    ]
+    labels = (route_dir / "labels.tsv").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    assert labels[0].split("\t")[-2:] == ["decision", "notes"]
+    assert labels[1].split("\t")[-2:] == ["", ""]
+    assert (output / "routes.tsv").read_text(
+        encoding="utf-8"
+    ).splitlines()[1].endswith("\t1\t1")
+
+
+def test_prepare_cli_reports_candidate_and_route_counts(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from librarytools import rolecleanup_cli
+
+    root = tmp_path / "SAMPLES"
+    root.mkdir()
+    audit = tmp_path / "role-audit.tsv"
+    _write_audit(
+        audit,
+        [_row("CURATED/KICKS/a.wav", "KICKS", "PERC", "0.91")],
+    )
+    output = tmp_path / "run"
+
+    result = rolecleanup_cli.main(
+        [
+            "prepare",
+            "--audit",
+            str(audit),
+            "--root",
+            str(root),
+            "--output-dir",
+            str(output),
+        ]
+    )
+
+    assert result == 0
+    assert capsys.readouterr().out.splitlines()[:2] == [
+        "[MANIFEST-ONLY] role cleanup: 1 candidates",
+        "  routes: 1",
+    ]

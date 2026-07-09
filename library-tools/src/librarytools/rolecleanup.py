@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -149,3 +150,160 @@ def select_calibration(
         selected.append(chosen)
         remaining.remove(chosen)
     return sorted(selected, key=lambda item: item.path.as_posix())
+
+
+def _digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+def snapshot_audit(source: Path, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    baseline = output_dir / "role-audit-baseline.tsv"
+    source_digest = _digest(source)
+    if baseline.exists():
+        if _digest(baseline) != source_digest:
+            raise ValueError("baseline already exists with different content")
+    else:
+        shutil.copyfile(source, baseline)
+        baseline.chmod(0o444)
+    (output_dir / "role-audit-baseline.sha256").write_text(
+        f"{source_digest}  {baseline.name}\n",
+        encoding="utf-8",
+    )
+    return baseline
+
+
+def _route_slug(route: tuple[str, str]) -> str:
+    return f"{route[0].lower()}--{route[1].lower()}"
+
+
+def _write_candidates(path: Path, candidates: list[Candidate]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh, delimiter="\t")
+        writer.writerow(
+            [
+                "candidate_id",
+                "path",
+                "current_role",
+                "suggested_role",
+                "top_class",
+                "top_prob",
+            ]
+        )
+        for item in candidates:
+            writer.writerow(
+                [
+                    item.candidate_id,
+                    item.path.as_posix(),
+                    item.current_role,
+                    item.suggested_role,
+                    item.top_class,
+                    f"{item.top_prob:.3f}",
+                ]
+            )
+
+
+def write_prepare_artifacts(
+    audit_path: Path,
+    root: Path,
+    output_dir: Path,
+) -> dict[tuple[str, str], Path]:
+    baseline = snapshot_audit(audit_path, output_dir)
+    routes = group_routes(read_trust_mismatches(baseline))
+    result: dict[tuple[str, str], Path] = {}
+    route_rows: list[list[str]] = []
+    audition_root = output_dir / "audition"
+    audition_root.mkdir(parents=True, exist_ok=True)
+
+    for route, candidates in routes.items():
+        route_dir = audition_root / _route_slug(route)
+        route_dir.mkdir(parents=True, exist_ok=True)
+        calibration = select_calibration(candidates)
+        _write_candidates(route_dir / "candidates.tsv", candidates)
+
+        with (route_dir / "labels.tsv").open(
+            "w",
+            encoding="utf-8",
+            newline="",
+        ) as fh:
+            writer = csv.writer(fh, delimiter="\t")
+            writer.writerow(
+                [
+                    "candidate_id",
+                    "path",
+                    "current_role",
+                    "suggested_role",
+                    "top_prob",
+                    "decision",
+                    "notes",
+                ]
+            )
+            for item in calibration:
+                writer.writerow(
+                    [
+                        item.candidate_id,
+                        item.path.as_posix(),
+                        item.current_role,
+                        item.suggested_role,
+                        f"{item.top_prob:.3f}",
+                        "",
+                        "",
+                    ]
+                )
+
+        playlist = ["#EXTM3U", *(str(root / item.path) for item in calibration)]
+        (route_dir / "audition.m3u8").write_text(
+            "\n".join(playlist) + "\n",
+            encoding="utf-8",
+        )
+
+        checklist = [
+            f"# Audition: {route[0]} → {route[1]}",
+            "",
+            f"Candidates: {len(candidates)}",
+            f"Calibration files: {len(calibration)}",
+            "",
+            "Mark each item as move, keep, or unsure in labels.tsv.",
+            "",
+        ]
+        checklist.extend(
+            f"- [ ] `{root / item.path}` — confidence {item.top_prob:.3f} — "
+            f"`{item.candidate_id}`"
+            for item in calibration
+        )
+        (route_dir / "checklist.md").write_text(
+            "\n".join(checklist) + "\n",
+            encoding="utf-8",
+        )
+        route_rows.append(
+            [
+                route[0],
+                route[1],
+                _route_slug(route),
+                str(len(candidates)),
+                str(len(calibration)),
+            ]
+        )
+        result[route] = route_dir
+
+    with (output_dir / "routes.tsv").open(
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as fh:
+        writer = csv.writer(fh, delimiter="\t")
+        writer.writerow(
+            [
+                "current_role",
+                "suggested_role",
+                "route",
+                "candidates",
+                "calibration",
+            ]
+        )
+        writer.writerows(route_rows)
+    return result
