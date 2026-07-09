@@ -11,9 +11,10 @@ only writes are manifest/label/scorecard artifacts under a dated output director
 
 Two stages with a human gate between them:
 
-1. ``write_prepare_artifacts`` picks ~25 samples per drum role, stratified across spectral centroid
-   so bright/tonal (SP-1200-style) material is represented and not just easy canonical thumps, and
-   emits an audition packet whose ``labels.tsv`` has an empty ``true_role`` column.
+1. ``write_prepare_artifacts`` picks ~25 ONE-SHOTS per drum role (loops/long tails excluded by a
+   duration cap), stratified across spectral centroid so bright/tonal (SP-1200-style) material is
+   represented and not just easy canonical thumps, and emits an audition packet whose
+   ``labels.tsv`` has an empty ``true_role`` column.
 2. Robin fills ``true_role`` by ear; ``read_labels`` loads that ground truth and ``score`` grades a
    model's predictions against it.
 """
@@ -25,11 +26,18 @@ import hashlib
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 # Reuse the audio extension set the classifier already agrees on.
 from .classifier import AUDIO_EXTS
 
 ROLE_ORDER: tuple[str, ...] = ("KICKS", "CLAP-SNARE", "HATS-CYM", "PERC")
+
+# This tool scores ONE-SHOTS only. Loops, textures, and long tails that leak into the CURATED
+# role folders are excluded up front so the benchmark (and any move it informs) never gets muddled
+# by material that has no single unambiguous drum role. 2.5 s sits in the natural duration gap in
+# the library (one-shots/decays cluster <=~2.1 s; loops start at ~3.9 s). Tunable via --max-duration.
+ONESHOT_MAX_SECONDS: float = 2.5
 
 # What a human may write in true_role. OTHER = none of the four drum roles / a contaminant.
 TRUE_ROLE_VALUES: frozenset[str] = frozenset({*ROLE_ORDER, "OTHER"})
@@ -44,12 +52,19 @@ _LABEL_FIELDS: tuple[str, ...] = (
     "folder_role",
     "centroid_hz",
     "sub_ratio",
+    "duration_s",
     "true_role",
     "notes",
 )
 
 
 # ---- data types ------------------------------------------------------------------------------
+
+
+class FeatureRow(NamedTuple):
+    centroid_hz: float | None
+    sub_ratio: float | None
+    duration_s: float | None
 
 
 @dataclass(frozen=True)
@@ -59,6 +74,7 @@ class BenchmarkItem:
     folder_role: str
     centroid_hz: float | None
     sub_ratio: float | None
+    duration_s: float | None = None
 
     @property
     def source_group(self) -> str:
@@ -108,22 +124,23 @@ def _to_float(value: str) -> float | None:
         return None
 
 
-def load_features(path: Path) -> dict[str, tuple[float | None, float | None]]:
-    """Map library-relative path -> (centroid_hz, sub_ratio) from a sample-features tsv.
+def load_features(path: Path) -> dict[str, FeatureRow]:
+    """Map library-relative path -> FeatureRow(centroid_hz, sub_ratio, duration_s) from a tsv.
 
     Columns are located by header name so the loader survives layout changes. Rows whose numeric
-    cells are blank/unparseable yield ``(None, None)`` rather than raising.
+    cells are blank/unparseable yield ``None`` for that field rather than raising.
     """
-    table: dict[str, tuple[float | None, float | None]] = {}
+    table: dict[str, FeatureRow] = {}
     with path.open(encoding="utf-8", newline="") as fh:
         reader = csv.DictReader(fh, delimiter="\t")
         fields = reader.fieldnames or []
         if "path" not in fields:
             raise ValueError("features tsv missing 'path' column")
         for row in reader:
-            table[row["path"]] = (
-                _to_float(row.get("centroid_hz", "")),
-                _to_float(row.get("sub_ratio", "")),
+            table[row["path"]] = FeatureRow(
+                centroid_hz=_to_float(row.get("centroid_hz", "")),
+                sub_ratio=_to_float(row.get("sub_ratio", "")),
+                duration_s=_to_float(row.get("duration_s", "")),
             )
     return table
 
@@ -134,13 +151,19 @@ def load_features(path: Path) -> dict[str, tuple[float | None, float | None]]:
 def build_items(
     root: Path,
     role: str,
-    features: dict[str, tuple[float | None, float | None]],
+    features: dict[str, FeatureRow],
+    max_duration: float | None = None,
 ) -> list[BenchmarkItem]:
     """Walk CURATED/<role>/ on disk and join acoustic features by relative path.
 
     Disk is the source of truth for what exists to audition; the features tsv only supplies the
-    centroid/sub_ratio used for stratification. Files absent from the tsv keep ``None`` features
-    and fall into the feature-less stratum during selection.
+    centroid/sub_ratio used for stratification and the duration used for one-shot filtering. Files
+    absent from the tsv keep ``None`` features and fall into the feature-less stratum during
+    selection.
+
+    When ``max_duration`` is set the walk keeps ONE-SHOTS only: a file is excluded if its duration
+    is unknown (not in the features tsv) or longer than the cap. This is how loops/textures that
+    leaked into a role folder are kept out of the benchmark.
     """
     role_dir = root / "CURATED" / role
     items: list[BenchmarkItem] = []
@@ -152,14 +175,18 @@ def build_items(
         if path.suffix.lower() not in AUDIO_EXTS:
             continue
         rel = path.relative_to(root)
-        centroid, sub = features.get(rel.as_posix(), (None, None))
+        feat = features.get(rel.as_posix())
+        duration = feat.duration_s if feat else None
+        if max_duration is not None and (duration is None or duration > max_duration):
+            continue  # not a confirmed one-shot — leave loops/textures/tails out
         items.append(
             BenchmarkItem(
                 sample_id=sample_id(rel.as_posix()),
                 path=rel,
                 folder_role=role,
-                centroid_hz=centroid,
-                sub_ratio=sub,
+                centroid_hz=feat.centroid_hz if feat else None,
+                sub_ratio=feat.sub_ratio if feat else None,
+                duration_s=duration,
             )
         )
     return items
@@ -258,7 +285,9 @@ def _write_manifest(output_dir: Path, picks: dict[str, list[BenchmarkItem]]) -> 
     manifest = output_dir / "benchmark-manifest.tsv"
     with manifest.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh, delimiter="\t")
-        writer.writerow(["sample_id", "path", "folder_role", "centroid_hz", "sub_ratio"])
+        writer.writerow(
+            ["sample_id", "path", "folder_role", "centroid_hz", "sub_ratio", "duration_s"]
+        )
         for role in ROLE_ORDER:
             for item in picks.get(role, []):
                 writer.writerow(
@@ -268,6 +297,7 @@ def _write_manifest(output_dir: Path, picks: dict[str, list[BenchmarkItem]]) -> 
                         item.folder_role,
                         "" if item.centroid_hz is None else f"{item.centroid_hz:.3f}",
                         "" if item.sub_ratio is None else f"{item.sub_ratio:.4f}",
+                        "" if item.duration_s is None else f"{item.duration_s:.3f}",
                     ]
                 )
     digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
@@ -295,6 +325,7 @@ def _write_role_packet(
                     item.folder_role,
                     "" if item.centroid_hz is None else f"{item.centroid_hz:.3f}",
                     "" if item.sub_ratio is None else f"{item.sub_ratio:.4f}",
+                    "" if item.duration_s is None else f"{item.duration_s:.3f}",
                     "",  # true_role — Robin fills by ear
                     "",  # notes
                 ]
@@ -306,16 +337,17 @@ def _write_role_packet(
     checklist = [
         f"# Benchmark audition: {role}",
         "",
-        f"Files: {len(picks)}",
+        f"Files: {len(picks)} (one-shots only — loops/long tails are excluded)",
         "",
         f"Listen to each file and set `true_role` in labels.tsv to one of: {', '.join(sorted(TRUE_ROLE_VALUES))}.",
-        "OTHER = not one of the four drum roles (e.g. a bass note, a loop, a contaminant).",
+        "OTHER = a one-shot that is not one of the four drum roles (e.g. a bass hit, a stray perc).",
         "Judge by EAR only — ignore the folder it currently sits in.",
         "",
     ]
     checklist.extend(
-        f"- [ ] `{root / item.path}` — centroid "
-        f"{'n/a' if item.centroid_hz is None else f'{item.centroid_hz:.0f} Hz'} — `{item.sample_id}`"
+        f"- [ ] `{root / item.path}` — "
+        f"{'n/a' if item.centroid_hz is None else f'{item.centroid_hz:.0f} Hz'}, "
+        f"{'?' if item.duration_s is None else f'{item.duration_s:.2f} s'} — `{item.sample_id}`"
         for item in picks
     )
     (role_dir / "checklist.md").write_text("\n".join(checklist) + "\n", encoding="utf-8")
@@ -326,8 +358,13 @@ def write_prepare_artifacts(
     features_path: Path,
     output_dir: Path,
     per_role: int = 25,
+    max_duration: float | None = ONESHOT_MAX_SECONDS,
 ) -> dict[str, Path]:
-    """Build and freeze the benchmark audition packet. Returns role -> packet directory."""
+    """Build and freeze the benchmark audition packet. Returns role -> packet directory.
+
+    ``max_duration`` filters to one-shots (default ``ONESHOT_MAX_SECONDS``); pass ``None`` to
+    include every duration.
+    """
     features = load_features(features_path) if features_path.is_file() else {}
     output_dir.mkdir(parents=True, exist_ok=True)
     audition_root = output_dir / "audition"
@@ -335,7 +372,7 @@ def write_prepare_artifacts(
     picks: dict[str, list[BenchmarkItem]] = {}
     role_dirs: dict[str, Path] = {}
     for role in ROLE_ORDER:
-        items = build_items(root, role, features)
+        items = build_items(root, role, features, max_duration=max_duration)
         chosen = select_benchmark(items, size=per_role)
         picks[role] = chosen
         role_dir = audition_root / _role_slug(role)

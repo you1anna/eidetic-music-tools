@@ -25,9 +25,15 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
     if not args.root.is_dir():
         print(f"root not found: {args.root}", file=sys.stderr)
         return 2
+    # A cap of 0 (or less) disables the one-shot filter — used when no duration data is available.
+    max_duration = args.max_duration if args.max_duration > 0 else None
     try:
         role_dirs = benchmark.write_prepare_artifacts(
-            args.root, args.features, args.output_dir, per_role=args.per_role
+            args.root,
+            args.features,
+            args.output_dir,
+            per_role=args.per_role,
+            max_duration=max_duration,
         )
     except (OSError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
@@ -106,6 +112,13 @@ def main(argv: list[str] | None = None) -> int:
     prepare.add_argument("--features", type=Path, default=_DEFAULT_FEATURES)
     prepare.add_argument("--output-dir", type=Path, required=True)
     prepare.add_argument("--per-role", type=int, default=25)
+    prepare.add_argument(
+        "--max-duration",
+        type=float,
+        default=benchmark.ONESHOT_MAX_SECONDS,
+        help="one-shot cap in seconds; files longer than this are excluded (default: "
+        f"{benchmark.ONESHOT_MAX_SECONDS})",
+    )
 
     scorer = subparsers.add_parser("score", help="grade a model against the ear labels")
     scorer.add_argument("--output-dir", type=Path, required=True)

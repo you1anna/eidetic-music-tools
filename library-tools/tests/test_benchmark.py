@@ -8,10 +8,7 @@ import pytest
 from librarytools import benchmark
 
 
-FEATURE_FIELDS = ["path", "role", "centroid_hz", "sub_ratio"]
-
-
-def _write_features(path: Path, rows: list[list[str]]) -> None:
+def _write_features(path: Path, rows: list[tuple[str, str, str, str, str]]) -> None:
     # Mirror the real sample-features tsv shape (only the columns we read matter);
     # pad to the real column layout so the header-index lookup is exercised.
     header = [
@@ -24,9 +21,9 @@ def _write_features(path: Path, rows: list[list[str]]) -> None:
     with path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh, delimiter="\t")
         writer.writerow(header)
-        for rel, role, centroid, sub in rows:
+        for rel, role, centroid, sub, duration in rows:
             row = [""] * len(header)
-            row[0], row[3], row[17], row[19] = rel, role, centroid, sub
+            row[0], row[3], row[9], row[17], row[19] = rel, role, duration, centroid, sub
             writer.writerow(row)
 
 
@@ -40,29 +37,29 @@ def _make_files(root: Path, rels: list[str]) -> None:
 # ---- feature loading -------------------------------------------------------------------------
 
 
-def test_load_features_reads_centroid_and_sub_ratio(tmp_path: Path) -> None:
+def test_load_features_reads_centroid_sub_ratio_and_duration(tmp_path: Path) -> None:
     features = tmp_path / "features.tsv"
     _write_features(
         features,
         [
-            ["CURATED/KICKS/a.wav", "KICKS", "210.5", "0.99"],
-            ["CURATED/KICKS/b.wav", "KICKS", "3800.0", "0.05"],
+            ("CURATED/KICKS/a.wav", "KICKS", "210.5", "0.99", "0.42"),
+            ("CURATED/KICKS/b.wav", "KICKS", "3800.0", "0.05", "1.10"),
         ],
     )
 
     table = benchmark.load_features(features)
 
-    assert table["CURATED/KICKS/a.wav"] == (210.5, 0.99)
-    assert table["CURATED/KICKS/b.wav"] == (3800.0, 0.05)
+    assert table["CURATED/KICKS/a.wav"] == (210.5, 0.99, 0.42)
+    assert table["CURATED/KICKS/b.wav"] == (3800.0, 0.05, 1.10)
 
 
 def test_load_features_tolerates_blank_numeric_cells(tmp_path: Path) -> None:
     features = tmp_path / "features.tsv"
-    _write_features(features, [["CURATED/KICKS/a.wav", "KICKS", "", ""]])
+    _write_features(features, [("CURATED/KICKS/a.wav", "KICKS", "", "", "")])
 
     table = benchmark.load_features(features)
 
-    assert table["CURATED/KICKS/a.wav"] == (None, None)
+    assert table["CURATED/KICKS/a.wav"] == (None, None, None)
 
 
 # ---- item building ---------------------------------------------------------------------------
@@ -71,13 +68,14 @@ def test_load_features_tolerates_blank_numeric_cells(tmp_path: Path) -> None:
 def test_build_items_walks_curated_role_and_joins_features(tmp_path: Path) -> None:
     root = tmp_path / "SAMPLES"
     _make_files(root, ["CURATED/KICKS/pack/a.wav", "CURATED/KICKS/b.wav"])
-    features = {"CURATED/KICKS/pack/a.wav": (200.0, 0.98)}
+    features = {"CURATED/KICKS/pack/a.wav": benchmark.FeatureRow(200.0, 0.98, 0.5)}
 
     items = benchmark.build_items(root, "KICKS", features)
 
     by_path = {item.path.as_posix(): item for item in items}
     assert set(by_path) == {"CURATED/KICKS/pack/a.wav", "CURATED/KICKS/b.wav"}
     assert by_path["CURATED/KICKS/pack/a.wav"].centroid_hz == 200.0
+    assert by_path["CURATED/KICKS/pack/a.wav"].duration_s == 0.5
     assert by_path["CURATED/KICKS/b.wav"].centroid_hz is None
     assert by_path["CURATED/KICKS/pack/a.wav"].folder_role == "KICKS"
     assert len(by_path["CURATED/KICKS/pack/a.wav"].sample_id) == 12
@@ -97,6 +95,33 @@ def test_build_items_skips_appledouble_and_non_audio(tmp_path: Path) -> None:
     items = benchmark.build_items(root, "KICKS", {})
 
     assert [item.path.as_posix() for item in items] == ["CURATED/KICKS/a.wav"]
+
+
+def test_build_items_keeps_one_shots_and_drops_long_or_unknown_when_capped(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "SAMPLES"
+    _make_files(
+        root,
+        [
+            "CURATED/HATS-CYM/short.wav",   # 0.8s one-shot -> kept
+            "CURATED/HATS-CYM/decay.wav",   # 2.1s cymbal decay -> kept (<= 2.5)
+            "CURATED/HATS-CYM/loop.wav",    # 4.0s loop -> dropped
+            "CURATED/HATS-CYM/nofeat.wav",  # unknown duration -> dropped
+        ],
+    )
+    features = {
+        "CURATED/HATS-CYM/short.wav": benchmark.FeatureRow(6000.0, 0.01, 0.8),
+        "CURATED/HATS-CYM/decay.wav": benchmark.FeatureRow(5000.0, 0.02, 2.1),
+        "CURATED/HATS-CYM/loop.wav": benchmark.FeatureRow(4000.0, 0.03, 4.0),
+    }
+
+    items = benchmark.build_items(root, "HATS-CYM", features, max_duration=2.5)
+
+    assert {i.path.as_posix() for i in items} == {
+        "CURATED/HATS-CYM/short.wav",
+        "CURATED/HATS-CYM/decay.wav",
+    }
 
 
 # ---- stratified selection --------------------------------------------------------------------
@@ -167,14 +192,17 @@ def test_write_prepare_artifacts_emits_packet_with_empty_true_role(tmp_path: Pat
     _write_features(features, [])
     output = tmp_path / "run"
 
-    roles = benchmark.write_prepare_artifacts(root, features, output, per_role=5)
+    # max_duration=None: pure structural check, independent of the one-shot filter.
+    roles = benchmark.write_prepare_artifacts(
+        root, features, output, per_role=5, max_duration=None
+    )
 
     assert set(roles) == {"KICKS", "CLAP-SNARE", "HATS-CYM", "PERC"}
     labels = (roles["KICKS"] / "labels.tsv").read_text(encoding="utf-8").splitlines()
     header = labels[0].split("\t")
     assert header == [
         "sample_id", "path", "folder_role", "centroid_hz", "sub_ratio",
-        "true_role", "notes",
+        "duration_s", "true_role", "notes",
     ]
     # true_role + notes empty for the human to fill.
     assert labels[1].split("\t")[-2:] == ["", ""]
@@ -185,6 +213,28 @@ def test_write_prepare_artifacts_emits_packet_with_empty_true_role(tmp_path: Pat
     # Frozen manifest + checksum for reproducible scoring.
     assert (output / "benchmark-manifest.tsv").is_file()
     assert (output / "benchmark-manifest.sha256").read_text(encoding="utf-8").strip()
+
+
+def test_write_prepare_artifacts_excludes_long_samples(tmp_path: Path) -> None:
+    root = tmp_path / "SAMPLES"
+    _make_files(
+        root,
+        [f"CURATED/KICKS/oneshot-{i:02}.wav" for i in range(8)]
+        + ["CURATED/KICKS/big-loop.wav"],
+    )
+    features = tmp_path / "features.tsv"
+    _write_features(
+        features,
+        [(f"CURATED/KICKS/oneshot-{i:02}.wav", "KICKS", "150", "0.99", "0.6") for i in range(8)]
+        + [("CURATED/KICKS/big-loop.wav", "KICKS", "150", "0.99", "6.0")],
+    )
+    output = tmp_path / "run"
+
+    benchmark.write_prepare_artifacts(root, features, output, per_role=25, max_duration=2.5)
+
+    kicks_labels = (output / "audition" / "kicks" / "labels.tsv").read_text(encoding="utf-8")
+    assert "big-loop.wav" not in kicks_labels
+    assert "oneshot-00.wav" in kicks_labels
 
 
 # ---- label reading ---------------------------------------------------------------------------
@@ -305,6 +355,7 @@ def test_prepare_cli_writes_packets_and_reports_counts(
             "--features", str(tmp_path / "missing.tsv"),  # tolerated: no features
             "--output-dir", str(output),
             "--per-role", "5",
+            "--max-duration", "0",  # 0 disables the one-shot filter (no duration data here)
         ]
     )
 
