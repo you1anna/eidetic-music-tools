@@ -1,336 +1,263 @@
-# library-tools
+# Library tools
 
-Lightweight tools to review and tidy the sample library on the Extreme SSD.
+## Purpose
 
-**Safety first:** review tools are manifest-only. Tidy tools default to dry-run
-and never delete — they only move files, write a plan manifest, and (with
-`--apply`) an undo manifest.
+The library package reviews, organises, curates and analyses large sample
+libraries. It is the library-management half of **Eidetic Sample Tools**.
 
-## Tools
-
-| Command | What it does |
-|---|---|
-| `sample-review` | Indexes the library and proposes role folders and hardware-friendly filenames in a TSV manifest. Covers category, loop/one-shot type, BPM, key, and tempo fit across `PACKS/`, `_REVIEW/`, and incoming vendor folders. Skips `CURATED/` and staging/export folders. Never moves or renames originals. |
-| `sample-analyze` | Read-only sample intelligence: Octatrack Set registry, source registry, feature/tag TSV, device crate suggestions, and a short report. Add `--classifier` for experimental drum-role suggestions (review only — does not authorise moves). |
-| `sample-sort` | Applies `sample-review` classifications: moves confidently classified files flat into their role folder (`<ROLE>/<proposed_name>`). Dry-run by default. `--apply` moves files and writes an undo manifest. `--include-review` gathers low-confidence files into `_REVIEW/`. Name collisions get a `-N` suffix. Move-only, never overwrites. |
-| `sample-classify` | Older coarse sorter: sorts `_PACKS/`, `DRUM-KITS/`, `00_INBOX/` into sound-type buckets (`LOOPS/`, `ONE-SHOTS/`, `PADS-DRONES/`, `OTHER/`), keeping one level of pack grouping. Superseded by `sample-sort` for role-based organisation; still useful for the loop/one-shot split. |
-| `sample-dedupe` | Finds byte-identical duplicates and moves extras to `_TO-DELETE/dupes/` for later human sign-off. |
-| `sample-near-dupes` | Manifest-only near-duplicate pilot from cached `sample-analyze` acoustic features. After short-hit audition proved unreliable, it only emits long, high-certainty loop pairs by default. Stages only reviewed TSV rows marked `decision=remove`. |
-| `sample-intake` | Detects whole vendor packs at the library root or in `00_INBOX/`, normalises names, and moves them into `PACKS/`. Dry-run by default, reversible. |
-| `sample-role-cleanup` | Turns a classifier audit into per-route audition packets (`checklist.md`, M3U, labels). Human labels each calibration row before any move plan is generated. Read-only until apply. |
-| `sample-profile` | Shows/validates portable studio and device capability profiles against the Studio KB version header. |
-| `sample-curate` | Plans the reversible `CURATED` → `CATALOGUE` migration, prepares human audition packets, promotes favourites by verified copy, writes consumer crates, and quarantines promotion undo. |
-
-Run sort (or the older classify) **before** dedupe so dedupe sees the final layout.
+The default posture is cautious: review commands leave audio in place, move
+commands preview first, and musical decisions remain human decisions.
 
 ## Install
 
-Per-machine venv (Python 3.12):
+Follow the portable [getting started guide](../docs/GETTING-STARTED.md), or use
+the current personal environment:
 
 ```bash
 /opt/homebrew/bin/python3.12 -m venv ~/.venvs/library-tools
 ~/.venvs/library-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-music-tools/library-tools[dev]"
 ```
 
-For the drum-role classifier, install with the `classifier` extra:
+The experimental drum classifier is optional and heavy:
 
 ```bash
 ~/.venvs/library-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-music-tools/library-tools[classifier,dev]"
 ```
 
-## Quick start
+Its upstream weights have no software licence and are not shipped in this
+repository. Locally supplied weights belong at
+`library-tools/models/drum-cnn-lstm.model` and must remain uncommitted.
 
-Shell aliases (optional):
+## Commands at a glance
 
-```bash
-ls() { ~/.venvs/library-tools/bin/sample-sort "$@"; }
-lc() { ~/.venvs/library-tools/bin/sample-classify "$@"; }
-ld() { ~/.venvs/library-tools/bin/sample-dedupe "$@"; }
-ln() { ~/.venvs/library-tools/bin/sample-near-dupes "$@"; }
-lr() { ~/.venvs/library-tools/bin/sample-review "$@"; }
-```
+| Command | Maturity | Purpose | Audio effect by default |
+|---|---|---|---|
+| `sample-review` | Stable | Write a filename- and path-based review. | None; optional TSV output only |
+| `sample-sort` | Stable | Plan role-based moves from confident review rules. | Dry run |
+| `sample-dedupe` | Stable | Find byte-identical copies and stage extras. | Dry run |
+| `sample-intake` | Stable | Route loose vendor packs into `PACKS/`. | Dry run |
+| `sample-analyze` | Beta / Experimental | Build stable inventory and acoustic evidence; optionally run the drum classifier. | Derived files only |
+| `sample-near-dupes` | Experimental | Produce conservative near-duplicate audition groups. | Derived files; reviewed apply is a dry run by default |
+| `sample-role-cleanup` | Experimental | Turn classifier routes into human calibration packets. | Derived files only |
+| `sample-benchmark` | Experimental | Prepare ear-labelled model benchmarks and score them. | Derived files only |
+| `sample-profile` | Beta | Show or validate portable studio profiles. | None |
+| `sample-curate` | Beta | Plan catalogue migration, curate by ear and write consumer views. | Depends on subcommand |
+| `sample-classify` | Retired | Legacy coarse loop/one-shot sorter. | Dry run |
 
-Common commands:
+Stable means used in the current personal workflow and covered by tests. Beta is
+implemented but still being refined. Experimental output needs extra scrutiny.
+Retired commands remain available for old workflows but are not recommended for
+new ones.
 
-```bash
-lr --no-probe --summary
-lr --no-probe --output manifests/review.tsv
-lr --no-probe --output manifests/review.tsv --index-dir manifests/index
+## Safe starting point
 
-ls                        # dry-run: per-role counts + plan manifest
-ls --apply                # move classified files into <ROLE>/
-ls --include-review --apply   # also gather low-confidence files into _REVIEW/
-
-ld                 # dry-run: duplicate count and reclaimable space
-ld --apply         # move byte-identical dupes to _TO-DELETE/dupes/
-
-ln --limit-groups 10      # near-dupe pilot batch, manifest-only
-ln --family kick-909      # near-dupe one-family pilot
-
-~/.venvs/library-tools/bin/sample-analyze --pilot --no-probe
-~/.venvs/library-tools/bin/sample-analyze --classifier
-```
-
-## Manual curation workflow
-
-Use this when you want to make progress yourself before asking AI to improve
-classification rules. The idea: generate small summaries and inspect focused TSV
-slices locally, rather than pasting huge manifests into chat.
-
-### 1. Refresh the manifest index
+Print a summary without writing files or changing audio:
 
 ```bash
-cd "/Users/macmini/Projects/eidetic-music-tools/library-tools"
-lr() { ~/.venvs/library-tools/bin/sample-review "$@"; }
-
-lr --no-probe --summary
-lr --no-probe --output manifests/review-latest.tsv --index-dir manifests/index-latest
+sample-review --root /path/to/SAMPLES --no-probe --summary
 ```
 
-This writes review data only. It does **not** move, rename, convert, or delete
-samples. Re-run after you add or remove packs.
-
-### 2. Inspect useful slices
-
-Open these TSVs in Numbers, LibreOffice, VS Code, or a text editor:
-
-- `manifests/index-latest/high-confidence/KICKS.tsv`
-- `manifests/index-latest/high-confidence/BASS.tsv`
-- `manifests/index-latest/high-confidence/DRUM-LOOPS.tsv`
-- `manifests/index-latest/tempo/techno-core.tsv`
-- `manifests/index-latest/tempo/techno-adjacent.tsv`
-- `manifests/index-latest/tempo/house-lower.tsv`
-- `manifests/index-latest/review-needed.tsv`
-
-**Checks to do by hand:**
-
-- Sort by `main_category`, `sample_type`, `bpm`, `key`, and `tempo_fit`.
-- Skim `review-needed.tsv` for missing keywords or pack patterns.
-- Review `house-lower.tsv` manually — lower-BPM house material may still be
-  useful for pitching, chopping, dub texture, or resampling.
-- Check `warnings` for `digitakt-name>24`, but leave hardware-bank curation until
-  the library index is cleaner.
-- When asking AI to improve rules, pick 10–30 representative problem rows. Do
-  not send the whole manifest.
-
-### 3. Quick terminal summaries
+Write a review manifest and focused indexes:
 
 ```bash
-wc -l manifests/index-latest/*.tsv manifests/index-latest/tempo/*.tsv
-sed -n '1,25p' manifests/index-latest/review-needed.tsv
-rg -n "house-lower|too-fast|unknown" manifests/review-latest.tsv
-find "/Volumes/Extreme SSD/Production/SAMPLES" -name '._*' | wc -l
+sample-review \
+  --root /path/to/SAMPLES \
+  --no-probe \
+  --output manifests/review.tsv \
+  --index-dir manifests/index
 ```
 
-Counts plus a handful of example rows are usually enough context to improve
-rules.
+Use `--no-probe` when filename and path evidence is enough. Omit it when you
+want `ffprobe` duration fallback.
 
-### 4. Safe dry-runs only
+## Review and index
 
-These check the library without changing it:
+### `sample-review`
 
-```bash
-lc --no-probe
-ld
+```text
+sample-review [--root PATH] [--output FILE] [--index-dir DIR]
+              [--summary] [--no-probe]
 ```
 
-Avoid `lc --apply` or `ld --apply` until the manifest review looks right and you
-have a backup. `ld` can estimate duplicate candidates, but staging should wait
-until the category/index pass has settled.
-
-### Review output explained
-
-Run review before any apply step when improving library taxonomy. It keeps
-musical axes separate:
+The main TSV keeps musical axes separate:
 
 | Field | Meaning |
 |---|---|
-| `main_category` | Kicks, bass, vocals, and so on |
-| `sample_type` | Loop, one-shot, texture, unknown |
-| `bpm` / `key` | Explicit tags only — no guessing |
-| `tempo_fit` | Advisory bucket, not a delete decision |
+| `main_category` | Proposed role such as kicks, bass or vocals |
+| `sample_type` | Loop, one-shot, texture or unknown |
+| `bpm` / `key` | Explicit path or filename evidence; never guessed |
+| `tempo_fit` | Advisory tempo group, not a deletion decision |
 | `proposed_name` | Hardware-friendly filename |
-| `warnings` | e.g. names longer than Digitakt's 24-character limit |
+| `warnings` | Review notes such as a Digitakt name over 24 characters |
 
-**Tempo fit buckets:** `techno-core` = 130–150 BPM · `techno-adjacent` = 124–129
-· `house-lower` = below 124 · `too-fast` = above 150 · `unknown` = no explicit
-BPM. Lower-BPM house material stays indexed because it may still be useful.
+`--index-dir` writes high-confidence role files, tempo views and
+`review-needed.tsv`. BPM parsing deliberately avoids treating instrument names
+such as 707, 808, 909, 303 and SH101 as tempos.
 
-**`--index-dir` output:**
+## Organise and deduplicate
 
-```text
-high-confidence/<CATEGORY>.tsv
-tempo/techno-core.tsv
-tempo/techno-adjacent.tsv
-tempo/house-lower.tsv
-tempo/too-fast.tsv
-tempo/unknown.tsv
-review-needed.tsv
-```
-
-BPM is extracted only from explicit tags (`132 BPM`, `132bpm`, `[132]`) or
-standalone numbers in paths already identified as loops/grooves. That keeps drum
-machine names like `707`, `808`, `909`, `303`, and `SH101` from becoming bogus
-tempo data. Key extraction is similarly conservative.
-
-## Sample intelligence pilot
-
-`sample-analyze` is the read-only layer after `sample-review`. It registers
-Octatrack Sets as intact sources, indexes audio/doc/project files by source kind,
-derives first-pass character tags with reason strings, and writes suggested crate
-manifests for Digitakt, TR-8S, Octatrack, and Ableton.
-
-```bash
-~/.venvs/library-tools/bin/sample-analyze --pilot
-```
-
-Artifacts land under `manifests/sample-intelligence-pilot/`:
+### `sample-sort`
 
 ```text
-ot-sets-latest.tsv
-source-registry-latest.tsv
-sample-features-latest.tsv
-curated-role-conflicts-latest.tsv
-kick-audit-latest.tsv
-clusters-latest.tsv
-crates/<device>/*.txt
-reports/pilot.md
+sample-sort [--root PATH] [--include-review] [--apply]
 ```
 
-By default it decodes samples read-only, writes Tier-1 acoustic features to a
-SQLite cache at `manifests/sample-intelligence.sqlite`, and uses those features
-for inspectable character tags and within-role cluster groups. Use `--no-probe`
-for a fast filename/path-only pass when you do not need acoustic evidence.
+Plans confident moves into flat role folders. `--include-review` also gathers
+low-confidence files in `_REVIEW/`. It does not overwrite a destination; name
+collisions receive a numeric suffix. `--apply` performs the moves and writes an
+undo manifest.
 
-**What it is useful for:**
-
-- Confirming Octatrack-native packs are seen as intact Sets, not flattened folders.
-- Producing small, device-shaped audition lists spread across measured sound
-  clusters rather than alphabetical dumps.
-- Inspecting acoustic reasons (`sub_ratio=0.72`, `tail_ms=120`, `centroid_hz=4500`)
-  before trusting a tag.
-- Surfacing obvious rule mistakes before any export or physical library move.
-- Flagging suspicious `CURATED/<role>` rows when the folder conflicts with
-  filename or path clues.
-
-**What it does not prove:**
-
-- That the chosen sounds are musically good.
-- That a Digitakt or TR-8S bank is performance-ready.
-- That heuristic labels (`subby-short`, `metallic-tight`) are semantically true.
-  They are grounded in simple acoustic features and still need ear checks.
-
-Treat crates as shortlist manifests for ear-checking. Promote only
-human-auditioned favourites into stable export manifests.
-
-For path-independent review history, run with `--library-db
-manifests/sample-library.sqlite`. This adds `scan_id` and SHA-256 `sample_id`
-columns to generated TSVs without modifying the older acoustic feature cache.
-
-### Human-gated role cleanup
-
-`sample-role-cleanup prepare` freezes a classifier audit and writes
-deterministic role-to-role audition packets. It is read-only: it does not move
-samples.
-
-```bash
-sample-role-cleanup prepare \
-  --audit manifests/sample-intelligence-pilot/role-audit-latest.tsv \
-  --root "/Volumes/Extreme SSD/Production/SAMPLES" \
-  --output-dir manifests/role-cleanup-20260709
-```
-
-Each route contains `checklist.md`, `audition.m3u8`, `labels.tsv`, and
-`candidates.tsv`. Robin marks calibration rows in `labels.tsv` as `move`,
-`keep`, or `unsure`. No move plan is created until every calibration row for
-that route is `move`.
-
-### High-precision KICKS gate
-
-`kick-audit-latest.tsv` buckets every `CURATED/KICKS` row as `likely_kick`,
-`review`, or `reject_as_kick` from cached acoustic features and existing
-role-conflict signals. It optimises for precision: a file is `likely_kick` only
-when evidence strongly supports it.
-
-- `likely_kick` — only KICKS candidates allowed into representatives and
-  device-crate picks.
-- `review` — visible for manual follow-up; not presented as kicks until promoted.
-- `reject_as_kick` — claps, hats, loops, long impacts, and similar; kept out of
-  KICKS selection.
-
-Manifest-only: never moves or renames files. Run the pilot without `--no-probe`
-when you need trustworthy KICKS representatives; no-probe runs lack enough
-acoustic evidence to promote KICKS rows to `likely_kick`.
-
-### Drum-role classifier (experimental)
-
-`sample-analyze --classifier` runs a pretrained drum-role model and writes
-`role-audit-latest.tsv`. Use it to **surface review candidates only** — it does
-not authorise moves. Calibration on 2026-07-09 failed (0/10 proposed
-`KICKS → CLAP-SNARE` moves were correct on ear check). Human audition and
-`sample-role-cleanup` are the path for actual re-filing.
-
-See [`STATUS.md`](../STATUS.md) and
-[`decisions/2026-07-09-drum-role-classifier-downgraded.md`](../decisions/2026-07-09-drum-role-classifier-downgraded.md).
-
-```bash
-~/.venvs/library-tools/bin/sample-analyze --classifier
-```
-
-## Near-duplicate pilot
-
-Use `sample-near-dupes` after a full `sample-analyze --pilot` run. Detection
-mode does not move files — it writes a review TSV plus a small Markdown/M3U
-audition packet. Short one-shots are ignored (first audition proved unreliable).
-The default detector requires long loops (`duration_s >= 3.0`) and high acoustic
-certainty (`score >= 0.99`).
-
-```bash
-~/.venvs/library-tools/bin/sample-near-dupes --family kick-909
-~/.venvs/library-tools/bin/sample-near-dupes --limit-groups 10
-```
-
-Outputs under `manifests/near-dupes-pilot/`:
+### `sample-dedupe`
 
 ```text
-near-dupes-latest.tsv          # edit decision column; only `remove` stages
-audition/near-dupes.md         # human checklist
-audition/near-dupes.m3u        # keep/candidate pairs for listening
+sample-dedupe [--root PATH] [--apply]
 ```
 
-To stage approved candidates: edit `near-dupes-latest.tsv`, set `decision=remove`
-only on auditioned rows, dry-run first, then apply:
+Compares file bytes, not names alone. `--apply` moves extra exact copies to
+`_TO-DELETE/dupes/` for later inspection. It never deletes them.
 
-```bash
-~/.venvs/library-tools/bin/sample-near-dupes --apply-manifest manifests/near-dupes-pilot/near-dupes-latest.tsv
-~/.venvs/library-tools/bin/sample-near-dupes --apply-manifest manifests/near-dupes-pilot/near-dupes-latest.tsv --apply
+Run sorting before exact de-duplication so the duplicate plan reflects the
+intended layout.
+
+### `sample-intake`
+
+```text
+sample-intake [--root PATH] [--apply]
 ```
 
-Approved candidates move to `_TO-DELETE/near-dupes/`. Nothing is deleted or
-overwritten. An undo manifest is written.
+Finds whole vendor packs at the library root or in `00_INBOX/`, normalises their
+folder names and plans moves into `PACKS/`. Loose audio at the root is not
+treated as a pack.
 
-## Classification rules
+### `sample-classify` — retired
 
-Precedence (cheapest signal first), matched against the whole lowercased path:
+```text
+sample-classify [--root PATH] [--no-probe] [--apply]
+```
 
-1. Loop keyword (`loop`, `lp`, `groove`, `bpm`, `NNNbpm`)
-2. Pad keyword (`pad`, `drone`, `atmos`, `texture`, `swell`, `ambient`)
-3. One-shot keyword (`hit`, `shot`, `stab`, `oneshot`, `single`)
-4. Duration (< 1.5 s = one-shot, else loop)
-5. `OTHER`
+This older command sorts `_PACKS/`, `DRUM-KITS/` and `00_INBOX/` into coarse
+sound-type buckets. Use `sample-review` and `sample-sort` for new role-based
+work. The command remains available when the older loop/one-shot split is useful.
 
-Tune keyword sets and the duration threshold in `config.py`.
+## Curate trusted samples
 
-## Manifests and undo
+### `sample-curate`
 
-Every run writes `manifests/<tool>-<timestamp>.tsv` (the plan). An `--apply` also
-writes `manifests/undo-<tool>-<timestamp>.tsv` with `dest<TAB>src` lines — reverse
-those moves to roll back. `manifests/` is gitignored.
+Global options must appear before the subcommand:
 
-## Safety
+```text
+sample-curate [--root PATH] [--library-db FILE] SUBCOMMAND ...
+```
 
-The SSD is APFS and backed up (2026-07-07), but the tools stay conservative:
+| Subcommand | Required options | Effect |
+|---|---|---|
+| `migrate-catalogue` | `--ableton-root`, `--manifest`, `--undo` | Writes a migration plan; `--apply` moves after preflight. |
+| `prepare` | `--output-dir` | Writes an audition playlist and labels. |
+| `validate` | `--labels` | Checks that required human decisions are complete. |
+| `promote` | `--labels`, `--run-id` | Hash-checks and copies approved favourites to `CURATED/`. |
+| `views` | `--labels`, `--output-dir` | Writes device and Ableton consumer TSVs. |
+| `undo-promotion` | `--run-id` | Moves promoted copies to quarantine. |
 
-- Move-only — never overwrite (colliding destinations are skipped and logged)
-- Dry-run by default
-- Stage rather than delete
+Use the complete [curation workflow](../docs/WORKFLOWS.md#3-curate-by-ear).
+Promotion accepts only a complete label set. Every favourite needs a canonical
+role and a short descriptor.
+
+## Analyse and run experiments
+
+### `sample-analyze`
+
+```text
+sample-analyze [--root PATH] [--output-dir DIR] [--pilot]
+               [--feature-cache FILE] [--no-probe] [--profile NAME]
+               [--library-db FILE] [--classifier]
+```
+
+`--pilot` writes source registries, acoustic features, reports and suggested
+device crates. `--library-db` adds a stable SHA-256 inventory. `--no-probe`
+skips duration and acoustic extraction for a faster path-only pass.
+
+`--classifier` runs the optional drum-role model and writes review candidates.
+It does not authorise moves, exclusions, curation or hardware crates. The first
+high-confidence route tested in the current library failed its ear calibration,
+so classifier output remains strictly experimental.
+
+### `sample-near-dupes`
+
+```text
+sample-near-dupes [--features FILE] [--output-dir DIR] [--root PATH]
+                  [--family TEXT] [--limit-groups N]
+                  [--apply-manifest FILE] [--apply]
+```
+
+The default pilot emits only long, high-certainty loop pairs. Short-hit acoustic
+similarity was not reliable enough. Review the TSV and mark `decision=remove`
+before passing it back with `--apply-manifest`; the operation still previews
+unless `--apply` is also present.
+
+### `sample-role-cleanup`
+
+```text
+sample-role-cleanup prepare --audit FILE --root PATH --output-dir DIR
+```
+
+Freezes a classifier audit into deterministic role-to-role audition packets.
+Every calibration row must be labelled before a route can advance. A failed
+route stays rejected.
+
+### `sample-benchmark`
+
+```text
+sample-benchmark prepare --output-dir DIR [--root PATH]
+                         [--features FILE] [--per-role N]
+                         [--max-duration SECONDS]
+sample-benchmark score --output-dir DIR [--root PATH]
+                       [--model cnn-lstm]
+```
+
+`prepare` selects a deterministic, feature-spanning set of one-shots for human
+labels. The default duration cap is 2.5 seconds. `score` reports per-role
+precision, recall and confusion against those ear labels.
+
+## Profiles
+
+### `sample-profile`
+
+```text
+sample-profile {show,validate} [--profile NAME] [--source-kb FILE]
+```
+
+`show` prints the resolved studio and device capabilities. `validate` compares
+the profile's source version with the header of the external Studio Knowledge
+Base. It does not inspect wiring or walk an archive directory.
+
+Profile selection order is command line, `MUSIC_TOOLS_PROFILE`,
+`~/.config/eidetic-music-tools/config.toml`, then the built-in default.
+
+## Output files
+
+Common derived outputs include:
+
+```text
+manifests/review.tsv
+manifests/index/high-confidence/<ROLE>.tsv
+manifests/index/review-needed.tsv
+manifests/sample-library.sqlite
+manifests/sample-intelligence-pilot/
+manifests/foundation-v1-review/
+manifests/foundation-v1/
+```
+
+These are review evidence and generated views. Their presence does not mean that
+an audio move or musical decision has been approved.
+
+## Safety and recovery
+
+- Review a plan before every `--apply`.
+- Verify the library backup before a large move.
+- Keep run manifests, human labels and undo records together.
+- Do not delete `_TO-DELETE/` or `_QUARANTINE/` without a separate ear and path
+  check.
+- Re-run a plan after the library changes.
+
+See the full [safety model](../docs/SAFETY.md) for action levels, hashes,
+automation limits and recovery behaviour.
