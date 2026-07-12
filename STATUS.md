@@ -1,128 +1,95 @@
 # Project status
 
-Last updated: 2026-07-09. A one-page summary of where things stand. Detailed
-records live in [`decisions/`](decisions/).
+**Updated:** 2026-07-12
 
-> Tooling update (2026-07-10): portable studio/device profiles, stable SHA-256
-> inventory, reversible catalogue migration planning, human-gated favourite
-> promotion, and profile-aware crate exports are implemented in the repo. The
-> live SSD migration and foundation-v1 ear review have **not** been applied yet.
+## Current position
 
-## The goal
+Eidetic Sample Tools has a working library-management package, a working device
+export package, and a portable studio-profile foundation. The software is ahead
+of the live library: the planned SSD catalogue migration and foundation-v1 ear
+review have **not been applied**.
 
-Turn the sample library on the Extreme SSD
-(`/Volumes/Extreme SSD/Production/SAMPLES/`) into a **trusted, clean library**,
-then export the right material — in the right format — onto hardware (Octatrack
-first, then Digitakt and TR-8S).
+The immediate objective remains a small, trusted collection for Octatrack first,
+then Digitakt and TR-8S.
 
-"Trusted" means each file is in the folder that matches what it actually is: a
-kick in `KICKS/`, a clap in `CLAP-SNARE/`, and so on. **Human audition is the
-final gate** — no automated tool authorises moves on its own.
+## Working software
 
-## What works today
+**Stable**
 
-### sample-tools
+- Manifest-only library review and TSV indexes.
+- Dry-run sorting, pack intake and exact de-duplication.
+- Reversible move helpers that do not overwrite destinations.
+- Device conversion and staging for Octatrack MKII, Digitakt MKI and TR-8S.
 
-Converts and syncs curated samples to each device's spec (16-bit / 44.1 kHz WAV,
-mono for Digitakt). Manifest-driven. Ready to use.
+**Beta**
 
-### library-tools
+- Portable studio and device profiles.
+- SHA-256 sample identity and scan history.
+- Ableton-aware catalogue migration planning.
+- Human audition packets and hash-verified favourite promotion.
+- Profile-aware consumer crates and device validation.
 
-The review and curation toolkit. Reads the library and writes TSV manifests. Can
-dry-run classify, de-dupe, sort, and intake whole vendor packs.
+All current automated tests pass. Beta describes operational maturity, not a
+known test failure.
 
-**Important:** these tools are manifest-first. They do not move, rename, or
-delete samples unless you explicitly run an apply step after human review.
+## Live-library state
 
-### Human-gated role cleanup
+- The Extreme SSD is APFS and backed up, confirmed 2026-07-07.
+- No profile-aware catalogue migration has been applied.
+- No classifier suggestion has been used to re-file samples.
+- The foundation-v1 ear review is not complete.
+- No final hardware export has been built from a fully approved foundation-v1
+  pool.
 
-`sample-role-cleanup` turns a classifier audit into per-route audition packets.
-You listen, label each calibration row (`move`, `keep`, or `unsure`), and only
-then generate a move plan. No route moves until every calibration row is `move`.
+The generated database, manifests and research reports are evidence. They are
+not proof that a move or musical selection has been approved.
 
-## Drum-role classifier — experimental only
+## Beta and research
 
-A pretrained CNN-BiLSTM model (`sample-analyze --classifier`) can suggest drum
-role mismatches. It was adopted on 2026-07-09, then **downgraded the same day**
-after calibration failed: 10 files the model called clap/snare were all kicks on
-ear check (0/10 correct).
+The acoustic feature layer writes inspectable measurements and shortlist crates.
+It cannot decide whether a sound is musically useful.
 
-**Current rule:** the classifier may produce review candidates. It must not
-authorise moves, exclusions, hardware crates, or wider library organisation.
+The optional drum-role classifier is **Experimental** and suggestion-only. Its
+first calibration failed: all 10 examples in the proposed
+`KICKS → CLAP-SNARE` route were kicks on ear check. That route is rejected and
+must not be used for moves, exclusions, curation or export.
 
-Full records:
+The saved full-library audit contains 13,584 rows and 280 high-confidence
+drum-role mismatch suggestions. Those numbers describe model output, not measured
+accuracy.
 
-- Adopted: [`decisions/2026-07-09-drum-role-classifier-adopted.md`](decisions/2026-07-09-drum-role-classifier-adopted.md)
-- Downgraded (active): [`decisions/2026-07-09-drum-role-classifier-downgraded.md`](decisions/2026-07-09-drum-role-classifier-downgraded.md)
+Near-duplicate research is also Experimental. Short drum hits proved unreliable,
+so the current pilot emits only long, high-certainty loop pairs and still
+requires a human removal label.
 
-### What the development scan showed (not sufficient for batch moves)
+## Known limits
 
-Early validation on filename-labelled packs looked strong:
+- Installation still assumes comfort with Python environments and a terminal.
+- The current studio is the only end-to-end production environment.
+- Human review is intentionally required and can be time-consuming.
+- The drum model weights are user-supplied, unlicensed upstream and never
+  committed.
+- Planned MIDI, Ableton inspection, bounce analysis and stem separation tools do
+  not exist as working packages yet.
 
-- 12/12 true kicks kept, 0/36 obvious contaminants leaked
-- Full `KICKS/` scan: 1,882 kept, 613 flagged with suggested destinations
+## Next actions
 
-That test used easy canonical kicks and obvious contaminants. It did not
-establish recall on processed or atypical kicks. The `trust ≥ 0.80` band was an
-uncalibrated softmax threshold, not measured real-world accuracy.
+1. Refresh the stable inventory against the current SSD.
+2. Review the catalogue migration manifest and Ableton reference preflight.
+3. Apply the migration only after the reviewed plan and backup check agree.
+4. Complete the foundation-v1 audition and labels.
+5. Promote hash-verified favourites and write consumer views.
+6. Preview, build and test the Octatrack export before the other devices.
 
-### Saved full-library audit
+Follow the canonical [workflow](docs/WORKFLOWS.md) and
+[safety model](docs/SAFETY.md) rather than reconstructing commands from research
+notes.
 
-The 2026-07-09 run wrote **13,584 rows** to
-`library-tools/manifests/sample-intelligence-pilot/role-audit-latest.tsv`
-(10,951 drum rows, 2,633 non-drum soft checks). It flagged **280**
-high-confidence drum-role mismatches. **Do not batch-move from these flags** —
-calibrate each route by ear first.
+## Evidence and decisions
 
-The `KICKS → CLAP-SNARE` route (62 candidates) is **rejected** after
-calibration: do not move any of those files.
-
-## Constraints to remember
-
-### Model licensing
-
-Upstream weights (`faraway1nspace/DrumClassifer-CNN-LSTM`) have **no license**.
-Code is a clean-room reimplementation. Weights are user-supplied on this machine
-only at `library-tools/models/drum-cnn-lstm.model` (gitignored — never commit).
-
-### Optional heavy dependencies
-
-`torch` and `librosa` live behind the `classifier` extra. The default venv may
-not include them — install explicitly for classifier work.
-
-### Manifest-only by default
-
-Audits and cleanup preparation do not move files. Re-filing requires a separate
-reviewed apply step.
-
-## What is not done yet
-
-1. **Calibrated role cleanup.** The audit is saved; routes need ear-checked
-   calibration before any moves.
-
-2. **No samples re-filed** from classifier suggestions.
-
-3. **No Octatrack export** from a validated clean pool.
-
-## Next steps (in order)
-
-1. Run `sample-role-cleanup prepare` against the saved audit to generate
-   audition packets per route.
-
-2. Calibrate each route by ear. Plan and apply only routes where every
-   calibration sample is correct. Dry-run first; every move is reversible.
-
-3. Build the **Octatrack export** from the validated clean pool.
-
-4. Decide whether to label a ~100-sample benchmark (25 per drum role) to score
-   this model or licensed alternatives before integrating another classifier.
-
-## Quick reference
-
-| Item | Location or command |
-|---|---|
-| Sample library | `/Volumes/Extreme SSD/Production/SAMPLES/` |
-| CURATED roles | BASS, CLAP-SNARE, DRONE-ATMOS, DRUM-KITS, DRUM-LOOPS, FX-RISE-IMPACT, HATS-CYM, KICKS, MIDI, PERC, SYNTH-STAB-CHORD, VOCALS |
-| Python venvs | `~/.venvs/` (per tool). Target Python 3.12. |
-| Classifier audit | `sample-analyze --classifier` → `role-audit-latest.tsv` (candidates only) |
-| Role cleanup | `sample-role-cleanup prepare` → per-route audition packets |
+- [Classifier adopted for evaluation](decisions/2026-07-09-drum-role-classifier-adopted.md)
+- [Classifier downgraded after calibration](decisions/2026-07-09-drum-role-classifier-downgraded.md)
+- [High-precision kicks gate assessment](decisions/2026-07-08-high-precision-kicks-gate-assessment.md)
+- [Near-duplicate pilot design](docs/superpowers/specs/2026-07-08-near-dupe-pilot-design.md)
+- [Sample intelligence audit](docs/superpowers/specs/2026-07-07-sample-intelligence-audit.md)
+- [Product roadmap](docs/ROADMAP.md)
