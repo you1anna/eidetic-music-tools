@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "librarytools"
 version = "0.1.0"
-description = "Sort the SSD sample library by sound type and de-dupe it (reversible)."
+description = "Safely review, organise, curate, and analyse large sample libraries."
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.0",
