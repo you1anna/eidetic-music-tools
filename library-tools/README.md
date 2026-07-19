@@ -15,13 +15,13 @@ the current personal environment:
 
 ```bash
 /opt/homebrew/bin/python3.12 -m venv ~/.venvs/library-tools
-~/.venvs/library-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-music-tools/library-tools[dev]"
+~/.venvs/library-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-sample-tools/library-tools[dev]"
 ```
 
 The experimental drum classifier is optional and heavy:
 
 ```bash
-~/.venvs/library-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-music-tools/library-tools[classifier,dev]"
+~/.venvs/library-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-sample-tools/library-tools[classifier,dev]"
 ```
 
 Its upstream weights have no software licence and are not shipped in this
@@ -231,7 +231,7 @@ the profile's source version with the header of the external Studio Knowledge
 Base. It does not inspect wiring or walk an archive directory.
 
 Profile selection order is command line, `MUSIC_TOOLS_PROFILE`,
-`~/.config/eidetic-music-tools/config.toml`, then the built-in default.
+`~/.config/eidetic-sample-tools/config.toml`, then the built-in default.
 
 ## Output files
 

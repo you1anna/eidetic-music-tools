@@ -16,7 +16,7 @@ purchases and physical build work.
 Select it locally:
 
 ```toml
-# ~/.config/eidetic-music-tools/config.toml
+# ~/.config/eidetic-sample-tools/config.toml
 profile = "eidetic-studio"
 ```
 
@@ -29,12 +29,11 @@ configuration, then the built-in default.
 sample-profile show --profile eidetic-studio
 sample-profile validate \
   --profile eidetic-studio \
-  --source-kb "/Users/macmini/Projects/Production/Studio/eidetic-studio-knowledge-base-v2_4.md"
+  --source-kb "$HOME/Projects/eidetic-studio/knowledge-base.md"
 ```
 
-Validation reads only the document version and update-date header. It does not
-walk the Studio `archive/` directory. The external knowledge base remains the
-authority for physical wiring.
+Validation reads only the document version and update-date header. The
+`eidetic-studio` repo (private) remains the authority for physical wiring.
 
 ## Current operating state
 

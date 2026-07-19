@@ -15,8 +15,8 @@ def _default_roots() -> list[Path]:
     if env:
         return [Path(p) for p in env.split(":") if p]
     return [
-        Path("/Users/macbookair/Music/Ableton"),
-        Path("/Volumes/Extreme SSD/Production"),
+        Path.home() / "Projects" / "Production",
+        Path("/Volumes/Extreme SSD/Production/ABLETON_PROJECTS"),
     ]
 
 

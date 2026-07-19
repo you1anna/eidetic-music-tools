@@ -1,7 +1,7 @@
 # Getting started
 
 This guide installs Eidetic Sample Tools and runs a first review without changing
-audio. Commands use example paths; replace `/path/to/eidetic-music-tools` and
+audio. Commands use example paths; replace `/path/to/eidetic-sample-tools` and
 `/path/to/SAMPLES` with your own locations.
 
 ## Before you begin
@@ -27,7 +27,7 @@ workflow currently targets Octatrack MKII, Digitakt MKI and TR-8S.
 Create one environment for the working packages:
 
 ```bash
-cd /path/to/eidetic-music-tools
+cd /path/to/eidetic-sample-tools
 python3.12 -m venv .venv
 .venv/bin/pip install -e "./library-tools"
 ```
@@ -41,7 +41,7 @@ for the complete list.
 Install the exporter into the same environment:
 
 ```bash
-cd /path/to/eidetic-music-tools
+cd /path/to/eidetic-sample-tools
 .venv/bin/pip install -e "./sample-tools"
 ```
 
@@ -76,7 +76,7 @@ Portable studio and device profiles live in `profiles/`. Select a studio profile
 with `--profile`, `MUSIC_TOOLS_PROFILE`, or a local configuration file:
 
 ```toml
-# ~/.config/eidetic-music-tools/config.toml
+# ~/.config/eidetic-sample-tools/config.toml
 profile = "eidetic-studio"
 ```
 
@@ -140,7 +140,7 @@ portable environment shown above:
 
 | Item | Current location |
 |---|---|
-| Repository | `/Users/macmini/Projects/eidetic-music-tools` |
+| Repository | `/Users/macmini/Projects/eidetic-sample-tools` |
 | Sample library | `/Volumes/Extreme SSD/Production/SAMPLES` |
 | Python environments | `~/.venvs/library-tools` and `~/.venvs/sample-tools` |
 | Studio profile | `profiles/studios/eidetic-studio.toml` |

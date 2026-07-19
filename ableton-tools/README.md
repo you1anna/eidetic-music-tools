@@ -12,7 +12,7 @@ a Set — see `docs/superpowers/specs/2026-06-26-ableton-als-introspection-desig
 
 Both commands accept `--root` for a single directory, or fall back to the `ALS_ROOTS`
 environment variable (colon-separated list of roots), defaulting to
-`/Users/macbookair/Music/Ableton:/Volumes/Extreme SSD/Production`.
+`~/Projects/Production:/Volumes/Extreme SSD/Production/ABLETON_PROJECTS` (active scratch + SSD archive).
 
 ## Install
 

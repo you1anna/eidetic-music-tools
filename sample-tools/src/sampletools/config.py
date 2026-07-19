@@ -18,7 +18,7 @@ SAMPLES_ROOT: Path = Path(
     os.environ.get("SAMPLES_ROOT", "/Volumes/Extreme SSD/Production/SAMPLES")
 )
 EXPORT_ROOT: Path = Path(os.environ.get("EXPORT_ROOT", str(SAMPLES_ROOT / "_EXPORT")))
-DEFAULT_PROFILE_CONFIG = Path.home() / ".config" / "eidetic-music-tools" / "config.toml"
+DEFAULT_PROFILE_CONFIG = Path.home() / ".config" / "eidetic-sample-tools" / "config.toml"
 
 # Source extensions ffmpeg can decode into our 16-bit/44.1 WAV target.
 SOURCE_EXTS: tuple[str, ...] = (".wav", ".aif", ".aiff", ".flac", ".mp3", ".ogg")

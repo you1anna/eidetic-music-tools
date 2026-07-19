@@ -12,7 +12,7 @@ studio.
 | Location | Format | Role |
 |---|---|---|
 | `/Volumes/Extreme SSD/Production/SAMPLES/` | APFS | Master sample library and production archive |
-| `/Users/macmini/Projects/eidetic-music-tools` | APFS | Repository on the Mac mini |
+| `/Users/macmini/Projects/eidetic-sample-tools` | APFS | Repository on the Mac mini |
 | Octatrack CF and TR-8S SD | Device-compatible FAT/exFAT | Rebuildable exports |
 | Digitakt +Drive | Managed through Elektron Transfer | Rebuildable device library |
 

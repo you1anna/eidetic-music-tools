@@ -17,7 +17,7 @@ the current personal environment:
 ```bash
 brew install ffmpeg python@3.12
 /opt/homebrew/bin/python3.12 -m venv ~/.venvs/sample-tools
-~/.venvs/sample-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-music-tools/sample-tools"
+~/.venvs/sample-tools/bin/pip install -e "/Users/macmini/Projects/eidetic-sample-tools/sample-tools"
 ```
 
 This installs the `sample-export` command. The repository also keeps a
@@ -159,7 +159,7 @@ carry identity, role and human-selection evidence.
 | `SAMPLES_ROOT` | `/Volumes/Extreme SSD/Production/SAMPLES` |
 | `EXPORT_ROOT` | `<SAMPLES_ROOT>/_EXPORT` |
 | `MUSIC_TOOLS_PROFILE` | Not set; use built-in device defaults |
-| Local profile file | `~/.config/eidetic-music-tools/config.toml` |
+| Local profile file | `~/.config/eidetic-sample-tools/config.toml` |
 
 Select a studio profile with `--profile`, the environment variable, or the
 local configuration file. The command-line value wins.
